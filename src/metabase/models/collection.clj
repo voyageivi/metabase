@@ -109,7 +109,7 @@
     (str
      "/"
      (str/join "/" (for [collection-or-id collections-or-ids]
-                     (u/get-id collection-or-id)))
+                     (u/the-id collection-or-id)))
      "/")))
 
 (s/defn location-path->ids :- [su/IntGreaterThanZero]
@@ -249,7 +249,7 @@
     :all
     (set
      (for [path  permissions-set
-           :let  [[_ id-str] (re-matches #"/collection/((?:\d+)|root)/((read|moderate)/)?" path)]
+           :let  [[_ id-str] (re-matches #"/collection/((?:\d+)|root)/((read|edit)/)?" path)]
            :when id-str]
        (cond-> id-str
          (not= id-str "root") Integer/parseInt)))))
@@ -381,7 +381,7 @@
   [{:keys [location], :as collection} :- CollectionWithLocationAndIDOrRoot]
   (if (collection.root/is-root-collection? collection)
     "/"
-    (str location (u/get-id collection) "/")))
+    (str location (u/the-id collection) "/")))
 
 (def ^:private Children
   (s/both
@@ -549,7 +549,7 @@
   ;; Needless to say, it makes no sense to move a Collection into itself or into one of its descendants. So let's make
   ;; sure we're not doing that...
   (when (contains? (set (location-path->ids (children-location new-parent)))
-                   (u/get-id collection))
+                   (u/the-id collection))
     (throw (Exception. (tru "You cannot move a Collection into itself or into one of its descendants."))))
   (set
    (cons (perms/collection-readwrite-path new-parent)
@@ -562,9 +562,9 @@
         new-children-location  (children-location (assoc collection :location new-location))]
     ;; first move this Collection
     (log/info (trs "Moving Collection {0} and its descendants from {1} to {2}"
-                   (u/get-id collection) (:location collection) new-location))
+                   (u/the-id collection) (:location collection) new-location))
     (db/transaction
-      (db/update! Collection (u/get-id collection) :location new-location)
+      (db/update! Collection (u/the-id collection) :location new-location)
       ;; we need to update all the descendant collections as well...
       (db/execute!
        {:update Collection
@@ -580,7 +580,7 @@
 (s/defn ^:private archive-collection!
   "Archive a Collection and its descendant Collections and their Cards, Dashboards, and Pulses."
   [collection :- CollectionWithLocationAndIDOrRoot]
-  (let [affected-collection-ids (cons (u/get-id collection)
+  (let [affected-collection-ids (cons (u/the-id collection)
                                       (collection->descendant-ids collection, :archived false))]
     (db/transaction
       (db/update-where! Collection {:id       [:in affected-collection-ids]
@@ -594,7 +594,7 @@
 (s/defn ^:private unarchive-collection!
   "Unarchive a Collection and its descendant Collections and their Cards, Dashboards, and Pulses."
   [collection :- CollectionWithLocationAndIDOrRoot]
-  (let [affected-collection-ids (cons (u/get-id collection)
+  (let [affected-collection-ids (cons (u/the-id collection)
                                       (collection->descendant-ids collection, :archived true))]
     (db/transaction
       (db/update-where! Collection {:id       [:in affected-collection-ids]
@@ -641,14 +641,15 @@
   (assoc collection :slug (slugify collection-name)))
 
 (defn- copy-collection-permissions!
-  "Grant read permissions to destination Collections for every Group with read permissions for a source Collection,
-  and write perms for every Group with write perms for the source Collection."
+  "Grant permissions (read/write/moderate) to destination Collections for every Group with the same permissions for a source Collection"
   [source-collection-or-id dest-collections-or-ids]
   ;; figure out who has permissions for the source Collection...
-  (let [group-ids-with-read-perms  (db/select-field :group_id Permissions
-                                     :object (perms/collection-read-path source-collection-or-id))
-        group-ids-with-write-perms (db/select-field :group_id Permissions
-                                     :object (perms/collection-readwrite-path source-collection-or-id))]
+  (let [group-ids-with-read-perms     (db/select-field :group_id Permissions
+                                        :object (perms/collection-read-path source-collection-or-id))
+        group-ids-with-write-perms    (db/select-field :group_id Permissions
+                                        :object (perms/collection-readwrite-path source-collection-or-id))
+        group-ids-with-moderate-perms (db/select-field :group_id Permissions
+                                        :object (perms/collection-moderate-path source-collection-or-id))]
     ;; ...and insert corresponding rows for each destination Collection
     (db/insert-many! Permissions
       (concat
@@ -661,7 +662,11 @@
        (for [dest     dest-collections-or-ids
              :let     [readwrite-path (perms/collection-readwrite-path dest)]
              group-id group-ids-with-write-perms]
-         {:group_id group-id, :object readwrite-path})))))
+         {:group_id group-id, :object readwrite-path})
+       (for [dest     dest-collections-or-ids
+             :let     [moderate-path (perms/collection-moderate-path dest)]
+             group-id group-ids-with-moderate-perms]
+         {:group_id group-id, :object moderate-path})))))
 
 (defn- copy-parent-permissions!
   "When creating a new Collection, we shall copy the Permissions entries for its parent. That way, Groups who can see
@@ -853,8 +858,8 @@
 ;;; -------------------------------------------------- IModel Impl ---------------------------------------------------
 
 (defn perms-objects-set
-  "Return the required set of permissions to `read-or-write` `collection-or-id`."
-  [collection-or-id read-or-write]
+  "Return the required set of permissions to read, write, or moderate the `collection-or-id`."
+  [collection-or-id permission-type]
   (let [collection (if (integer? collection-or-id)
                      (db/select-one [Collection :id :namespace] :id (collection-or-id))
                      collection-or-id)]
@@ -864,9 +869,10 @@
       #{}
       ;; This is not entirely accurate as you need to be a superuser to modifiy a collection itself (e.g., changing its
       ;; name) but if you have write perms you can add/remove cards
-      #{(case read-or-write
-          :read  (perms/collection-read-path collection-or-id)
-          :write (perms/collection-readwrite-path collection-or-id))})))
+      #{(case permission-type
+          :read     (perms/collection-read-path collection-or-id)
+          :write    (perms/collection-readwrite-path collection-or-id)
+          :moderate (perms/collection-moderate-path collection-or-id))})))
 
 (u/strict-extend (class Collection)
   models/IModel
@@ -936,12 +942,12 @@
   ;; TODO - we currently enforce a unique constraint on Collection names... what are we going to do if two Users have
   ;; the same first & last name! This will *ruin* their lives :(
   (let [{first-name :first_name, last-name :last_name} (db/select-one ['User :first_name :last_name]
-                                                         :id (u/get-id user-or-id))]
+                                                         :id (u/the-id user-or-id))]
     (format-personal-collection-name first-name last-name)))
 
 (s/defn user->existing-personal-collection :- (s/maybe CollectionInstance)
   [user-or-id]
-  (db/select-one Collection :personal_owner_id (u/get-id user-or-id)))
+  (db/select-one Collection :personal_owner_id (u/the-id user-or-id)))
 
 (s/defn user->personal-collection :- CollectionInstance
   "Return the Personal Collection for `user-or-id`, if it already exists; if not, create it and return it."
@@ -950,13 +956,13 @@
       (try
         (db/insert! Collection
           :name              (user->personal-collection-name user-or-id)
-          :personal_owner_id (u/get-id user-or-id)
+          :personal_owner_id (u/the-id user-or-id)
           ;; a nice slate blue color
           :color             "#31698A")
         ;; if an Exception was thrown why trying to create the Personal Collection, we can assume it was a race
         ;; condition where some other thread created it in the meantime; try one last time to fetch it
         (catch Throwable _
-          (db/select-one Collection :personal_owner_id (u/get-id user-or-id))))))
+          (db/select-one Collection :personal_owner_id (u/the-id user-or-id))))))
 
 (def ^:private ^{:arglists '([user-id])} user->personal-collection-id
   "Cached function to fetch the ID of the Personal Collection belonging to User with `user-id`. Since a Personal
@@ -966,7 +972,7 @@
   (memoize/ttl
    (s/fn user->personal-collection-id* :- su/IntGreaterThanZero
      [user-id :- su/IntGreaterThanZero]
-     (u/get-id (user->personal-collection user-id)))
+     (u/the-id (user->personal-collection user-id)))
    ;; cache the results for 60 minutes; TTL is here only to eventually clear out old entries/keep it from growing too
    ;; large
    :ttl/threshold (* 60 60 1000)))
@@ -977,7 +983,7 @@
   done for every API call; this function is an attempt to make fetching this information as efficient as reasonably
   possible."
   [user-or-id]
-  (let [personal-collection-id (user->personal-collection-id (u/get-id user-or-id))]
+  (let [personal-collection-id (user->personal-collection-id (u/the-id user-or-id))]
     (cons personal-collection-id
           ;; `descendant-ids` wants a CollectionWithLocationAndID, and luckily we know Personal Collections always go
           ;; in Root, so we can pass it what it needs without actually having to fetch an entire CollectionInstance
@@ -991,13 +997,13 @@
   (when (seq users)
     ;; efficiently create a map of user ID -> personal collection ID
     (let [user-id->collection-id (db/select-field->id :personal_owner_id Collection
-                                   :personal_owner_id [:in (set (map u/get-id users))])]
+                                   :personal_owner_id [:in (set (map u/the-id users))])]
       ;; now for each User, try to find the corresponding ID out of that map. If it's not present (the personal
       ;; Collection hasn't been created yet), then instead call `user->personal-collection-id`, which will create it
       ;; as a side-effect. This will ensure this property never comes back as `nil`
       (for [user users]
-        (assoc user :personal_collection_id (or (user-id->collection-id (u/get-id user))
-                                                (user->personal-collection-id (u/get-id user))))))))
+        (assoc user :personal_collection_id (or (user-id->collection-id (u/the-id user))
+                                                (user->personal-collection-id (u/the-id user))))))))
 
 (defmulti allowed-namespaces
   "Set of Collection namespaces (as keywords) that instances of this model are allowed to go in. By default, only the

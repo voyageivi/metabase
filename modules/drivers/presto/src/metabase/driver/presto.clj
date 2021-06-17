@@ -231,7 +231,7 @@
   (try
     (let [sql-args (sql-jdbc.describe-database/simple-select-probe-query driver schema table-name)]
       ;; if the query completes without throwing an Exception, we can SELECT from this table
-      (execute-query-for-sync details sql-args)
+      ;(execute-query-for-sync details sql-args)
       true)
     (catch Throwable _
       false)))

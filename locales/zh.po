@@ -12451,7 +12451,7 @@ msgstr "API调用异常"
 
 #: src/metabase/server/middleware/exceptions.clj
 msgid "Request canceled before finishing."
-msgstr "请求在完成之前发生异常."
+msgstr "请求在完成之前发生异常/取消."
 
 #: src/metabase/middleware/json.clj
 msgid "Metabase only supports JSON requests."
@@ -13261,7 +13261,7 @@ msgstr "数据库任务调度失败"
 msgid "All elements must be distinct."
 msgstr "所有元素必须唯一"
 
-#: 
+#:
 msgctxt "Modal for selecting columns in source data or when doing a join."
 msgid "Pick the columns you want to include"
 msgstr "选择需要包含的列"
@@ -17655,12 +17655,12 @@ msgstr "{0} {1}"
 msgid "{1}"
 msgstr "{1}"
 
-#: 
+#:
 msgctxt "This is a new information message on the new pulse creation page."
 msgid "Pulses are being phased out"
 msgstr "豆类正在被淘汰"
 
-#: 
+#:
 msgctxt "An info message letting you know you can create dashboard subscriptions instead of pulses."
 msgid "You can now set up {0} instead. We'll remove Pulses in a future release, and help you migrate any that you still have."
 msgstr "你现在可以设置{0}来代替。我们将在未来的版本中删除Pulses，并帮助你迁移任何你仍然拥有的Pulses。"
@@ -17669,7 +17669,7 @@ msgstr "你现在可以设置{0}来代替。我们将在未来的版本中删除
 msgid "dashboard subscriptions"
 msgstr "仪表盘订阅"
 
-#: 
+#:
 msgid "{0} charts in your subscription won't look the same as in your dashboard. {1}"
 msgstr "{0}订阅中的图表与仪表盘中的图表看起来不一样。{1}"
 
@@ -17817,7 +17817,7 @@ msgid "Set up {0} source database and run migrations..."
 msgstr "建立{0}源数据库并运行迁移..."
 
 #. make sure the dest DB is up-to-date
-#. 
+#.
 #. don't need or want to run data migrations in the target DB, since the data is already migrated appropriately
 #: src/metabase/cmd/copy.clj
 msgid "Set up {0} target database and run migrations..."

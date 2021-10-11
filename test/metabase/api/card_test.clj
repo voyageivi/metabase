@@ -14,6 +14,8 @@
                                      PulseChannelRecipient Table ViewLog]]
             [metabase.models.permissions :as perms]
             [metabase.models.permissions-group :as perms-group]
+            [metabase.models.revision :as revision :refer [Revision]]
+            [metabase.models.user :refer [User]]
             [metabase.query-processor :as qp]
             [metabase.query-processor.async :as qp.async]
             [metabase.query-processor.middleware.constraints :as constraints]
@@ -293,6 +295,8 @@
                        :can_write              true
                        :dashboard_count        0
                        :result_metadata        true
+                       :last-edit-info         {:timestamp true :id true :first_name "Rasta"
+                                                :last_name "Toucan" :email "rasta@metabase.com"}
                        :creator                (merge
                                                 (select-keys (mt/fetch-user :rasta) [:id :date_joined :last_login :locale])
                                                 {:common_name  "Rasta Toucan"
@@ -308,7 +312,11 @@
                          (update :dataset_query map?)
                          (update :collection map?)
                          (update :result_metadata (partial every? map?))
-                         (update :creator dissoc :is_qbnewb)))))))))))
+                         (update :creator dissoc :is_qbnewb)
+                         (update :last-edit-info (fn [edit-info]
+                                                   (-> edit-info
+                                                       (update :id boolean)
+                                                       (update :timestamp boolean))))))))))))))
 
 (deftest save-empty-card-test
   (testing "POST /api/card"
@@ -344,8 +352,7 @@
     (mt/with-non-admin-groups-no-root-collection-perms
       (let [metadata  [{:base_type    :type/Integer
                         :display_name "Count Chocula"
-                        :name         "count_chocula"
-                        :semantic_type :type/Number}]
+                        :name         "count_chocula"}]
             card-name (mt/random-name)]
         (mt/with-temp Collection [collection]
           (perms/grant-collection-readwrite-permissions! (perms-group/all-users) collection)
@@ -358,8 +365,7 @@
             ;; now check the metadata that was saved in the DB
             (is (= [{:base_type    :type/Integer
                      :display_name "Count Chocula"
-                     :name         "count_chocula"
-                     :semantic_type :type/Number}]
+                     :name         "count_chocula"}]
                    (db/select-one-field :result_metadata Card :name card-name)))))))))
 
 (deftest save-card-with-empty-result-metadata-test
@@ -391,9 +397,8 @@
     (let [metadata  [{:base_type    :type/Integer
                       :display_name "Count Chocula"
                       :name         "count_chocula"
-                      :semantic_type :type/Number
                       :fingerprint  {:global {:distinct-count 285},
-                                     :type {:type/Number {:min 5, :max 2384, :avg 1000.2}}}}]
+                                     :type   {:type/Number {:min 5, :max 2384, :avg 1000.2}}}}]
           card-name (mt/random-name)]
       (mt/with-temp Collection [collection]
         (perms/grant-collection-readwrite-permissions! (perms-group/all-users) collection)
@@ -406,12 +411,11 @@
                                          :result_metadata    (map fingerprint-integers->doubles metadata)
                                          :metadata_checksum  (#'results-metadata/metadata-checksum metadata)))
             (testing "check the metadata that was saved in the DB"
-              (is (= [{:base_type    :type/Integer
-                       :display_name "Count Chocula"
-                       :name         "count_chocula"
-                       :semantic_type :type/Number
-                       :fingerprint  {:global {:distinct-count 285},
-                                      :type   {:type/Number {:min 5.0, :max 2384.0, :avg 1000.2}}}}]
+              (is (= [{:base_type     :type/Integer
+                       :display_name  "Count Chocula"
+                       :name          "count_chocula"
+                       :fingerprint   {:global {:distinct-count 285},
+                                       :type   {:type/Number {:min 5.0, :max 2384.0, :avg 1000.2}}}}]
                      (db/select-one-field :result_metadata Card :name card-name))))))))))
 
 (deftest saving-card-fetches-correct-metadata
@@ -584,7 +588,17 @@
                    :collection_id          (u/the-id collection)
                    :collection             (into {} collection)
                    :result_metadata        (mt/obj->json->obj (:result_metadata card))})
-                 (mt/user-http-request :rasta :get 200 (str "card/" (u/the-id card))))))))))
+                 (mt/user-http-request :rasta :get 200 (str "card/" (u/the-id card))))))
+        (testing "Card should include last edit info if available"
+          (mt/with-temp* [User     [{user-id :id} {:first_name "Test" :last_name "User" :email "user@test.com"}]
+                          Revision [_ {:model "Card"
+                                       :model_id (:id card)
+                                       :user_id user-id
+                                       :object (revision/serialize-instance card (:id card) card)}]]
+            (is (= {:id true :email "user@test.com" :first_name "Test" :last_name "User" :timestamp true}
+                   (-> (mt/user-http-request :rasta :get 200 (str "card/" (u/the-id card)))
+                       mt/boolean-ids-and-timestamps
+                       :last-edit-info)))))))))
 
 ;;; +----------------------------------------------------------------------------------------------------------------+
 ;;; |                                                UPDATING A CARD                                                 |
@@ -600,7 +614,10 @@
     (with-cards-in-writeable-collection card
       (is (= "Original Name"
              (db/select-one-field :name Card, :id (u/the-id card))))
-      (mt/user-http-request :rasta :put 202 (str "card/" (u/the-id card)) {:name "Updated Name"})
+      (is (= {:timestamp true, :first_name "Rasta", :last_name "Toucan", :email "rasta@metabase.com", :id true}
+             (-> (mt/user-http-request :rasta :put 202 (str "card/" (u/the-id card)) {:name "Updated Name"})
+                 mt/boolean-ids-and-timestamps
+                 :last-edit-info)))
       (is (= "Updated Name"
              (db/select-one-field :name Card, :id (u/the-id card)))))))
 
@@ -618,13 +635,21 @@
         (is (= false
                (set-archived! false)))))))
 
-(deftest we-shouldn-t-be-able-to-update-archived-status-if-we-don-t-have-collection--write--perms
+(deftest we-shouldn-t-be-able-to-archive-cards-if-we-don-t-have-collection--write--perms
   (mt/with-non-admin-groups-no-root-collection-perms
     (mt/with-temp* [Collection [collection]
                     Card       [card {:collection_id (u/the-id collection)}]]
       (perms/grant-collection-read-permissions! (perms-group/all-users) collection)
       (is (= "You don't have permissions to do that."
              (mt/user-http-request :rasta :put 403 (str "card/" (u/the-id card)) {:archived true}))))))
+
+(deftest we-shouldn-t-be-able-to-unarchive-cards-if-we-don-t-have-collection--write--perms
+  (mt/with-non-admin-groups-no-root-collection-perms
+    (mt/with-temp* [Collection [collection]
+                    Card       [card {:collection_id (u/the-id collection) :archived true}]]
+      (perms/grant-collection-read-permissions! (perms-group/all-users) collection)
+      (is (= "You don't have permissions to do that."
+              (mt/user-http-request :rasta :put 403 (str "card/" (u/the-id card)) {:archived false}))))))
 
 (deftest clear-description-test
   (testing "Can we clear the description of a Card? (#4738)"
@@ -664,8 +689,7 @@
 (deftest make-sure-when-updating-a-card-the-query-metadata-is-saved--if-correct-
   (let [metadata [{:base_type    :type/Integer
                    :display_name "Count Chocula"
-                   :name         "count_chocula"
-                   :semantic_type :type/Number}]]
+                   :name         "count_chocula"}]]
     (mt/with-temp Card [card]
       (with-cards-in-writeable-collection card
         ;; update the Card's query
@@ -676,8 +700,7 @@
         ;; now check the metadata that was saved in the DB
         (is (= [{:base_type    :type/Integer
                  :display_name "Count Chocula"
-                 :name         "count_chocula"
-                 :semantic_type :type/Number}]
+                 :name         "count_chocula"}]
                (db/select-one-field :result_metadata Card :id (u/the-id card))))))))
 
 (deftest make-sure-when-updating-a-card-the-correct-query-metadata-is-fetched--if-incorrect-
@@ -750,8 +773,8 @@
   "Call the collection endpoint for `collection-id` as `user-kwd`. Will return a map with the names of the items as
   keys and their position as the value"
   [user-kwd collection-or-collection-id]
-  (name->position (mt/user-http-request user-kwd :get 200
-                                        (format "collection/%s/items" (u/the-id collection-or-collection-id)))))
+  (name->position (:data (mt/user-http-request user-kwd :get 200
+                                               (format "collection/%s/items" (u/the-id collection-or-collection-id))))))
 
 (defmacro with-ordered-items
   "Macro for creating many sequetial collection_position model instances, putting each in `collection`"
@@ -1020,28 +1043,47 @@
                            :body    body-map}))
 
 (deftest alert-deletion-test
-  (doseq [{:keys [message card expected-email f]}
+  (doseq [{:keys [message card deleted? expected-email f]}
           [{:message        "Archiving a Card should trigger Alert deletion"
+            :deleted?       true
             :expected-email "the question was archived by Rasta Toucan"
             :f              (fn [{:keys [card]}]
                               (mt/user-http-request :rasta :put 202 (str "card/" (u/the-id card)) {:archived true}))}
            {:message        "Validate changing a display type triggers alert deletion"
             :card           {:display :table}
+            :deleted?       true
             :expected-email "the question was edited by Rasta Toucan"
             :f              (fn [{:keys [card]}]
                               (mt/user-http-request :rasta :put 202 (str "card/" (u/the-id card)) {:display :line}))}
            {:message        "Changing the display type from line to table should force a delete"
             :card           {:display :line}
+            :deleted?       true
             :expected-email "the question was edited by Rasta Toucan"
             :f              (fn [{:keys [card]}]
                               (mt/user-http-request :rasta :put 202 (str "card/" (u/the-id card)) {:display :table}))}
            {:message        "Removing the goal value will trigger the alert to be deleted"
             :card           {:display                :line
                              :visualization_settings {:graph.goal_value 10}}
+            :deleted?       true
             :expected-email "the question was edited by Rasta Toucan"
             :f              (fn [{:keys [card]}]
                               (mt/user-http-request :rasta :put 202 (str "card/" (u/the-id card)) {:visualization_settings {:something "else"}}))}
-           {:message        "Adding an additional breakout will cause the alert to be removed"
+           {:message        "Adding an additional breakout does not cause the alert to be removed if no goal is set"
+            :card           {:display                :line
+                             :visualization_settings {}
+                             :dataset_query          (assoc-in
+                                                      (mbql-count-query (mt/id) (mt/id :checkins))
+                                                      [:query :breakout]
+                                                      [[:field
+                                                        (mt/id :checkins :date)
+                                                        {:temporal-unit :hour}]])}
+            :deleted?       false
+            :f              (fn [{:keys [card]}]
+                              (mt/user-http-request :crowberto :put 202 (str "card/" (u/the-id card))
+                                                    {:dataset_query (assoc-in (mbql-count-query (mt/id) (mt/id :checkins))
+                                                                              [:query :breakout] [[:datetime-field (mt/id :checkins :date) "hour"]
+                                                                                                  [:datetime-field (mt/id :checkins :date) "minute"]])}))}
+           {:message        "Adding an additional breakout will cause the alert to be removed if a goal is set"
             :card           {:display                :line
                              :visualization_settings {:graph.goal_value 10}
                              :dataset_query          (assoc-in
@@ -1050,6 +1092,7 @@
                                                       [[:field
                                                         (mt/id :checkins :date)
                                                         {:temporal-unit :hour}]])}
+            :deleted?       true
             :expected-email "the question was edited by Crowberto Corv"
             :f              (fn [{:keys [card]}]
                               (mt/user-http-request :crowberto :put 202 (str "card/" (u/the-id card))
@@ -1073,16 +1116,19 @@
                                                     :pulse_channel_id (u/the-id pc)}]]
         (with-cards-in-writeable-collection card
           (mt/with-fake-inbox
-            (u/with-timeout 5000
-              (mt/with-expected-messages 2
-                (f {:card card})))
-            (is (= (merge (crowberto-alert-not-working {expected-email true})
-                          (rasta-alert-not-working     {expected-email true}))
-                   (mt/regex-email-bodies (re-pattern expected-email)))
-                (format "Email containing %s should have been sent to Crowberto and Rasta" (pr-str expected-email)))
-            (is (= nil
-                   (Pulse (u/the-id pulse)))
-                "Alert should have been deleted")))))))
+            (when deleted?
+              (u/with-timeout 5000
+                (mt/with-expected-messages 2
+                  (f {:card card}))
+               (is (= (merge (crowberto-alert-not-working {expected-email true})
+                             (rasta-alert-not-working     {expected-email true}))
+                      (mt/regex-email-bodies (re-pattern expected-email)))
+                   (format "Email containing %s should have been sent to Crowberto and Rasta" (pr-str expected-email)))))
+            (if deleted?
+              (is (= nil (Pulse (u/the-id pulse)))
+                  "Alert should have been deleted")
+              (is (not= nil (Pulse (u/the-id pulse)))
+                  "Alert should not have been deleted"))))))))
 
 (deftest changing-the-display-type-from-line-to-area-bar-is-fine-and-doesnt-delete-the-alert
   (is (= {:emails-1 {}
@@ -1444,10 +1490,10 @@
             "d" 1                       ;-> Existing cards in new collection are untouched and position unchanged
             "e" 2
             "f" 3}
-           (merge (name->position (mt/user-http-request :crowberto :get 200 (format "collection/%s/items" coll-id-1)
-                                                        :model "card" :archived "false"))
-                  (name->position (mt/user-http-request :crowberto :get 200 (format "collection/%s/items" coll-id-2)
-                                                        :model "card" :archived "false")))))))
+           (merge (name->position (:data (mt/user-http-request :crowberto :get 200 (format "collection/%s/items" coll-id-1)
+                                                               :model "card" :archived "false")))
+                  (name->position (:data (mt/user-http-request :crowberto :get 200 (format "collection/%s/items" coll-id-2)
+                                                               :model "card" :archived "false"))))))))
 
 (deftest moving-a-card-without-a-collection-position-keeps-the-collection-position-nil
   (mt/with-temp* [Collection [{coll-id-1 :id}      {:name "Old Collection"}]
@@ -1462,10 +1508,10 @@
     (is (= {"a" nil
             "b" 1
             "c" 2}
-           (merge (name->position (mt/user-http-request :crowberto :get 200 (format "collection/%s/items" coll-id-1)
-                                                        :model "card" :archived "false"))
-                  (name->position (mt/user-http-request :crowberto :get 200 (format "collection/%s/items" coll-id-2)
-                                                        :model "card" :archived "false")))))))
+           (merge (name->position (:data (mt/user-http-request :crowberto :get 200 (format "collection/%s/items" coll-id-1)
+                                                               :model "card" :archived "false")))
+                  (name->position (:data (mt/user-http-request :crowberto :get 200 (format "collection/%s/items" coll-id-2)
+                                                               :model "card" :archived "false"))))))))
 
 ;;; +----------------------------------------------------------------------------------------------------------------+
 ;;; |                                            PUBLIC SHARING ENDPOINTS                                            |

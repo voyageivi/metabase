@@ -1,4 +1,9 @@
-import { restore, popover, visitQuestionAdhoc } from "__support__/e2e/cypress";
+import {
+  restore,
+  popover,
+  visitQuestionAdhoc,
+  openNativeEditor,
+} from "__support__/e2e/cypress";
 import { SAMPLE_DATASET } from "__support__/e2e/cypress_sample_dataset";
 
 const { PEOPLE, PEOPLE_ID } = SAMPLE_DATASET;
@@ -12,9 +17,7 @@ describe("scenarios > visualizations > maps", () => {
   it("should display a pin map for a native query", () => {
     cy.signInAsNormalUser();
     // create a native query with lng/lat fields
-    cy.visit("/question/new");
-    cy.contains("Native query").click();
-    cy.get(".ace_content").type(
+    openNativeEditor().type(
       "select -80 as lng, 40 as lat union all select -120 as lng, 40 as lat",
     );
     cy.get(".NativeQueryEditor .Icon-play").click();
@@ -55,7 +58,7 @@ describe("scenarios > visualizations > maps", () => {
     cy.get(".leaflet-container");
   });
 
-  it.skip("should suggest map visualization regardless of the first column type (metabase#14254)", () => {
+  it("should suggest map visualization regardless of the first column type (metabase#14254)", () => {
     cy.createNativeQuestion({
       name: "14254",
       native: {
@@ -136,5 +139,50 @@ describe("scenarios > visualizations > maps", () => {
     });
     cy.findByText("State is TX");
     cy.findByText("171 Olive Oyle Lane"); // Address in the first row
+  });
+
+  it("should display a tooltip for a grid map without a metric column (metabase#17940)", () => {
+    visitQuestionAdhoc({
+      display: "map",
+      dataset_query: {
+        database: 1,
+        type: "query",
+        query: {
+          "source-table": PEOPLE_ID,
+          breakout: [
+            [
+              "field",
+              PEOPLE.LONGITUDE,
+              {
+                binning: {
+                  strategy: "default",
+                },
+              },
+            ],
+            [
+              "field",
+              PEOPLE.LATITUDE,
+              {
+                binning: {
+                  strategy: "default",
+                },
+              },
+            ],
+          ],
+          limit: 1,
+        },
+      },
+      visualization_settings: {
+        "map.type": "grid",
+        "table.pivot_column": "LATITUDE",
+        "table.cell_column": "LONGITUDE",
+      },
+    });
+
+    cy.get(".leaflet-interactive").trigger("mousemove");
+
+    cy.findByText("Latitude:");
+    cy.findByText("Longitude:");
+    cy.findByText("1");
   });
 });

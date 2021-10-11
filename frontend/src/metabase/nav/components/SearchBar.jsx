@@ -52,6 +52,7 @@ const SearchInput = styled.input`
 `;
 
 const ALLOWED_SEARCH_FOCUS_ELEMENTS = new Set(["BODY", "A"]);
+const SEARCH_LIMIT = 50;
 
 export default class SearchBar extends React.Component {
   state = {
@@ -138,21 +139,21 @@ export default class SearchBar extends React.Component {
               if (e.key === "Enter" && (searchText || "").trim().length > 0) {
                 this.props.onChangeLocation({
                   pathname: "search",
-                  query: { q: searchText },
+                  query: { q: searchText.trim() },
                 });
               }
             }}
           />
           {active && MetabaseSettings.searchTypeaheadEnabled() && (
             <div className="absolute left right text-dark" style={{ top: 60 }}>
-              {searchText.length > 0 ? (
+              {searchText.trim().length > 0 ? (
                 <Card
                   className="overflow-y-auto"
                   style={{ maxHeight: 400 }}
                   py={1}
                 >
                   <Search.ListLoader
-                    query={{ q: searchText }}
+                    query={{ q: searchText.trim(), limit: SEARCH_LIMIT }}
                     wrapped
                     reload
                     debounced

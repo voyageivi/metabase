@@ -4,7 +4,7 @@
   clauses."
   (:require [medley.core :as m]
             [metabase.mbql.util :as mbql.u]
-            [metabase.models.dependency :as dependency]
+            [metabase.models.dependency :as dependency :refer [Dependency]]
             [metabase.models.interface :as i]
             [metabase.models.revision :as revision]
             [metabase.util :as u]
@@ -17,6 +17,9 @@
 
 (models/defmodel Metric :metric)
 
+(defn- pre-delete [{:keys [id]}]
+  (db/delete! 'Dependency :model "Metric", :model_id id))
+
 (defn- pre-update [{:keys [creator_id id], :as updates}]
   (u/prog1 updates
     ;; throw an Exception if someone tries to update creator_id
@@ -26,7 +29,7 @@
 
 (defn- perms-objects-set [metric read-or-write]
   (let [table (or (:table metric)
-                  (db/select-one ['Table :db_id :schema :id] :id (u/get-id (:table_id metric))))]
+                  (db/select-one ['Table :db_id :schema :id] :id (u/the-id (:table_id metric))))]
     (i/perms-objects-set table read-or-write)))
 
 (u/strict-extend (class Metric)
@@ -35,7 +38,8 @@
    models/IModelDefaults
    {:types      (constantly {:definition :metric-segment-definition})
     :properties (constantly {:timestamped? true})
-    :pre-update pre-update})
+    :pre-update pre-update
+    :pre-delete pre-delete})
   i/IObjectPermissions
   (merge
    i/IObjectPermissionsDefaults

@@ -5,6 +5,7 @@ import {
   openReviewsTable,
   openPeopleTable,
   popover,
+  filterWidget,
   visitQuestionAdhoc,
 } from "__support__/e2e/cypress";
 
@@ -106,7 +107,7 @@ describe("scenarios > question > filter", () => {
         });
       });
 
-      cy.get("fieldset")
+      filterWidget()
         .last()
         .within(() => {
           cy.findByText("Category").click();
@@ -301,7 +302,7 @@ describe("scenarios > question > filter", () => {
     cy.findAllByText("Fantastic Wool Shirt").should("not.exist");
   });
 
-  it.skip("should filter using Custom Expression from aggregated results (metabase#12839)", () => {
+  it("should filter using Custom Expression from aggregated results (metabase#12839)", () => {
     const CE_NAME = "Simple Math";
 
     cy.createQuestion({
@@ -310,7 +311,11 @@ describe("scenarios > question > filter", () => {
         filter: [">", ["field", CE_NAME, { "base-type": "type/Float" }], 0],
         "source-query": {
           aggregation: [
-            ["aggregation-options", ["+", 1, 1], { "display-name": CE_NAME }],
+            [
+              "aggregation-options",
+              ["+", 1, 1],
+              { name: CE_NAME, "display-name": CE_NAME },
+            ],
           ],
           breakout: [["field", PRODUCTS.CATEGORY, null]],
           "source-table": PRODUCTS_ID,
@@ -407,7 +412,7 @@ describe("scenarios > question > filter", () => {
         cy.url().should("not.include", "?category=Doohickey");
 
         // Set filter value to the `ID`
-        cy.get("fieldset")
+        filterWidget()
           .contains(/ID/i)
           .click();
         cy.findByPlaceholderText("Enter an ID").type("1");
@@ -425,68 +430,6 @@ describe("scenarios > question > filter", () => {
         // TODO: depending on how this issue will be fixed, the next assertion might need to be updated
         cy.location("search").should("eq", "?id=1");
       });
-    });
-  });
-
-  it.skip("should clear default filter value in native questions (metabase#13961)", () => {
-    const QUESTION_NAME = "13961";
-    const [CATEGORY_FILTER, ID_FILTER] = [
-      { name: "category", display_name: "Category", type: "dimension" },
-      { name: "prodid", display_name: "ProdId", type: "number" },
-    ];
-
-    cy.createNativeQuestion({
-      name: QUESTION_NAME,
-      native: {
-        query:
-          "SELECT * FROM PRODUCTS WHERE 1=1 AND {{category}} [[AND ID={{prodid}}]]",
-        "template-tags": {
-          [CATEGORY_FILTER.name]: {
-            id: "00315d5e-4a41-99da-1a41-e5254dacff9d",
-            name: CATEGORY_FILTER.name,
-            "display-name": CATEGORY_FILTER.display_name,
-            type: CATEGORY_FILTER.type,
-            default: "Doohickey",
-            dimension: ["field", PRODUCTS.CATEGORY, null],
-            "widget-type": "category",
-          },
-          [ID_FILTER.name]: {
-            id: "4775bccc-e82a-4069-fc6b-2acc90aadb8b",
-            name: ID_FILTER.name,
-            "display-name": ID_FILTER.display_name,
-            type: ID_FILTER.type,
-            default: null,
-          },
-        },
-      },
-    }).then(({ body: { id: QUESTION_ID } }) => {
-      cy.visit(`/question/${QUESTION_ID}`);
-
-      cy.findByText(QUESTION_NAME);
-      cy.findAllByText("Small Marble Shoes"); // Product ID 2, Doohickey
-
-      cy.location("search").should("eq", "?category=Doohickey");
-
-      // Remove default filter (category)
-      cy.get("fieldset .Icon-close").click();
-
-      cy.icon("play")
-        .first()
-        .should("be.visible")
-        .as("rerunQuestion");
-
-      cy.get("@rerunQuestion").click();
-      cy.url().should("not.include", "?category=Doohickey");
-
-      // Add value `1` to the ID filter
-      cy.findByPlaceholderText(ID_FILTER.display_name).type("1");
-
-      cy.get("@rerunQuestion").click();
-
-      cy.log("Reported tested and failing on v0.34.3 through v0.37.3");
-      cy.log("URL is correct at this point, but there are no results");
-      cy.location("search").should("eq", `?${ID_FILTER.name}=1`);
-      cy.findByText("Rustic Paper Wallet"); // Product ID 1, Gizmo
     });
   });
 
@@ -566,9 +509,8 @@ describe("scenarios > question > filter", () => {
     cy.findByText(/^Created At is before/i);
   });
 
-  it.skip("should display original custom expression filter with dates on subsequent click (metabase#12492)", () => {
-    cy.server();
-    cy.route("POST", "/api/dataset").as("dataset");
+  it("should display original custom expression filter with dates on subsequent click (metabase#12492)", () => {
+    cy.intercept("POST", "/api/dataset").as("dataset");
 
     visitQuestionAdhoc({
       dataset_query: {
@@ -591,11 +533,9 @@ describe("scenarios > question > filter", () => {
     });
 
     cy.wait("@dataset");
-    cy.findByText(/^Created At is after/i)
-      .should("not.contain", "Unknown")
-      .click();
+    cy.findByText(/Created At > Product? → Created At/i).click();
     cy.get("[contenteditable='true']").contains(
-      /\[Created At\] > \[Products? -> Created At\]/,
+      /\[Created At\] > \[Products? → Created At\]/,
     );
   });
 
@@ -636,16 +576,39 @@ describe("scenarios > question > filter", () => {
   });
 
   it("should offer case expression in the auto-complete suggestions", () => {
-    openReviewsTable({ mode: "notebook" });
-    cy.findByText("Filter").click();
-    cy.findByText("Custom Expression").click();
+    openExpressionEditorFromFreshlyLoadedPage();
+
     popover().contains(/case/i);
 
+    typeInExpressionEditor("c");
+
     // "case" is still there after typing a bit
-    cy.get("[contenteditable='true']")
-      .click()
-      .type("c");
     popover().contains(/case/i);
+  });
+
+  it("should enable highlighting suggestions with keyboard up and down arrows (metabase#16210)", () => {
+    const transparent = "rgba(0, 0, 0, 0)";
+
+    openExpressionEditorFromFreshlyLoadedPage();
+
+    typeInExpressionEditor("c");
+
+    cy.contains("Created At")
+      .closest("li")
+      .should("have.css", "background-color")
+      .and("not.eq", transparent);
+
+    typeInExpressionEditor("{downarrow}");
+
+    cy.contains("Created At")
+      .closest("li")
+      .should("have.css", "background-color")
+      .and("eq", transparent);
+
+    cy.contains("Product → Category")
+      .closest("li")
+      .should("have.css", "background-color")
+      .and("not.eq", transparent);
   });
 
   it.skip("should provide accurate auto-complete custom-expression suggestions based on the aggregated column name (metabase#14776)", () => {
@@ -908,13 +871,13 @@ describe("scenarios > question > filter", () => {
     cy.findByText("Gizmo").should("not.exist");
   });
 
-  it.skip("custom expression filter should reference fields by their name, not by their id (metabase#15748)", () => {
+  it("custom expression filter should reference fields by their name, not by their id (metabase#15748)", () => {
     openOrdersTable({ mode: "notebook" });
     cy.findByText("Filter").click();
     cy.findByText("Custom Expression").click();
     cy.get("[contenteditable=true]").type("[Total] < [Subtotal]");
     cy.button("Done").click();
-    cy.findByText("Total is less than Subtotal");
+    cy.findByText("Total < Subtotal");
   });
 
   it("custom expression filter should allow the use of parentheses in combination with logical operators (metabase#15754)", () => {
@@ -977,7 +940,7 @@ describe("scenarios > question > filter", () => {
     cy.get(".dot");
   });
 
-  it.skip("user shouldn't need to scroll to add filter (metabase#14307)", () => {
+  it("user shouldn't need to scroll to add filter (metabase#14307)", () => {
     cy.viewport(1280, 720);
     openPeopleTable({ mode: "notebook" });
     cy.findByText("Filter").click();
@@ -1031,7 +994,7 @@ describe("scenarios > question > filter", () => {
     }
   });
 
-  describe.skip("specific combination of filters can cause frontend reload or blank screen (metabase#16198)", () => {
+  describe("specific combination of filters can cause frontend reload or blank screen (metabase#16198)", () => {
     it("shouldn't display chosen category in a breadcrumb (metabase#16198-1)", () => {
       visitQuestionAdhoc({
         dataset_query: {
@@ -1047,12 +1010,6 @@ describe("scenarios > question > filter", () => {
           type: "query",
         },
       });
-
-      cy.findByRole("link", { name: "Sample Dataset" })
-        .parent()
-        .within(() => {
-          cy.findByText("Gizmo").should("not.exist");
-        });
     });
 
     it("adding an ID filter shouldn't cause page error and page reload (metabase#16198-2)", () => {
@@ -1110,4 +1067,104 @@ describe("scenarios > question > filter", () => {
       cy.button("Visualize");
     });
   });
+
+  ["true", "false"].forEach(condition => {
+    const regexCondition = new RegExp(`${condition}`, "i");
+    // We must use and return strings instead of boolean and numbers
+    const integerAssociatedWithCondition = condition === "true" ? "0" : "1";
+
+    describe(`should be able to filter on the boolean column ${condition.toUpperCase()} (metabase#16386)`, () => {
+      beforeEach(() => {
+        cy.createNativeQuestion({
+          name: "16386",
+          native: {
+            query:
+              'select 0::integer as "integer", true::boolean AS "boolean" union all \nselect 1::integer as "integer", false::boolean AS "boolean" union all \nselect null as "integer", true::boolean AS "boolean" union all \nselect -1::integer as "integer", null AS "boolean"',
+          },
+          visualization_settings: {
+            "table.pivot_column": "boolean",
+            "table.cell_column": "integer",
+          },
+        }).then(({ body: { id: QUESTION_ID } }) => {
+          cy.visit(`/question/${QUESTION_ID}`);
+          cy.findByText("Explore results").click();
+        });
+      });
+
+      it("from the column popover (metabase#16386-1)", () => {
+        cy.get(".cellData")
+          .contains("boolean")
+          .click();
+
+        popover()
+          .findByText("Filter by this column")
+          .click();
+
+        popover().within(() => {
+          // Not sure exactly what this popover will look like when this issue is fixed.
+          // In one of the previous versions it said "Update filter" instead of "Add filter".
+          // If that's the case after the fix, this part of the test might need to be updated accordingly.
+          cy.button(regexCondition)
+            .click()
+            .should("have.class", "bg-purple");
+          cy.button("Update filter").click();
+        });
+
+        assertOnTheResult();
+      });
+
+      it("from the simple question (metabase#16386-2)", () => {
+        cy.findAllByRole("button")
+          .contains("Filter")
+          .click();
+
+        cy.findByTestId("sidebar-right").within(() => {
+          cy.findByText("boolean").click();
+          addBooleanFilter();
+        });
+
+        assertOnTheResult();
+      });
+
+      it("from the custom question (metabase#16386-3)", () => {
+        cy.icon("notebook").click();
+        cy.findByText("Filter").click();
+
+        popover().within(() => {
+          cy.findByText("boolean").click();
+          addBooleanFilter();
+        });
+
+        cy.button("Visualize").click();
+
+        assertOnTheResult();
+      });
+
+      function addBooleanFilter() {
+        // This is really inconvenient way to ensure that the element is selected, but it's the only one currently
+        cy.button(regexCondition)
+          .click()
+          .should("have.class", "bg-purple");
+        cy.button("Add filter").click();
+      }
+
+      function assertOnTheResult() {
+        // Filter name
+        cy.findByText(`boolean is ${condition}`);
+        cy.findByText(integerAssociatedWithCondition);
+      }
+    });
+  });
 });
+
+function openExpressionEditorFromFreshlyLoadedPage() {
+  openReviewsTable({ mode: "notebook" });
+  cy.findByText("Filter").click();
+  cy.findByText("Custom Expression").click();
+}
+
+function typeInExpressionEditor(string) {
+  cy.get("[contenteditable='true']")
+    .click()
+    .type(string);
+}

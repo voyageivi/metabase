@@ -16,6 +16,7 @@ import EmbeddingLegalese from "./components/widgets/EmbeddingLegalese";
 import EmbeddingLevel from "./components/widgets/EmbeddingLevel";
 import FormattingWidget from "./components/widgets/FormattingWidget";
 
+import { SettingsCloudStoreLink } from "./components/SettingsCloudStoreLink";
 import SettingsUpdatesForm from "./components/SettingsUpdatesForm";
 import SettingsEmailForm from "./components/SettingsEmailForm";
 import SettingsSetupList from "./components/SettingsSetupList";
@@ -65,6 +66,7 @@ const SECTIONS = updateSectionsWithPlugins({
         display_name: t`Site URL`,
         type: "string",
         widget: SiteUrlWidget,
+        warningMessage: t`Only change this if you know what you're doing!`,
       },
       {
         key: "redirect-all-requests-to-https",
@@ -89,14 +91,13 @@ const SECTIONS = updateSectionsWithPlugins({
         display_name: t`Friendly Table and Field Names`,
         type: "select",
         options: [
-          { value: "advanced", name: t`Enabled` },
           {
             value: "simple",
-            name: t`Only replace underscores and dashes with spaces`,
+            name: t`Replace underscores and dashes with spaces`,
           },
           { value: "none", name: t`Disabled` },
         ],
-        defaultValue: "advanced",
+        defaultValue: "simple",
       },
       {
         key: "enable-nested-queries",
@@ -391,6 +392,22 @@ const SECTIONS = updateSectionsWithPlugins({
     ],
   },
 });
+
+if (MetabaseSettings.isHosted()) {
+  const allSections = Object.values(SECTIONS);
+  const lastSection = _.max(allSections, "order");
+  SECTIONS.cloud = {
+    name: t`Cloud`,
+    order: lastSection.order + 1,
+    settings: [
+      {
+        key: "store-link",
+        display_name: t`Cloud Settings`,
+        widget: SettingsCloudStoreLink,
+      },
+    ],
+  };
+}
 
 export const getSettings = createSelector(
   state => state.admin.settings.settings,

@@ -2,11 +2,14 @@
 
 import _ from "underscore";
 import { getIn } from "icepick";
-import { t } from "ttag";
 
 import { datasetContainsNoResults } from "metabase/lib/dataset";
 import { parseTimestamp } from "metabase/lib/time";
-import { NULL_DISPLAY_VALUE, NULL_NUMERIC_VALUE } from "metabase/lib/constants";
+import {
+  NULL_DISPLAY_VALUE,
+  NULL_NUMERIC_VALUE,
+  TOTAL_ORDINAL_VALUE,
+} from "metabase/lib/constants";
 
 import {
   computeTimeseriesDataInverval,
@@ -54,7 +57,6 @@ export function forceSortedGroup(
   group: CrossfilterGroup,
   indexMap: Map<Value, number>,
 ): void {
-  // $FlowFixMe
   const sorted = group
     .top(Infinity)
     .sort((a, b) => indexMap.get(a.key) - indexMap.get(b.key));
@@ -284,7 +286,7 @@ export function syntheticStackedBarsForWaterfallChart(
   if (showTotal) {
     const total = [xValueForWaterfallTotal({ settings, series }), totalValue];
     if (mainSeries[0]._origin) {
-      // $FlowFixMe cloning for the total bar
+      // cloning for the total bar
       total._origin = {
         seriesIndex: mainSeries[0]._origin.seriesIndex,
         rowIndex: mainSeries.length,
@@ -347,10 +349,11 @@ export function xValueForWaterfallTotal({ settings, series }) {
     const lastXValue = xValues[xValues.length - 1];
     return lastXValue.clone().add(count, interval);
   } else if (isQuantitative(settings) || isHistogram(settings)) {
-    return xValues[xValues.length - 1] + xInterval;
+    const maxXValue = _.max(xValues);
+    return maxXValue + xInterval;
   }
 
-  return t`Total`;
+  return TOTAL_ORDINAL_VALUE;
 }
 
 /************************************************************ PROPERTIES ************************************************************/
@@ -364,6 +367,8 @@ export const isHistogram = settings =>
   settings["graph.x_axis.scale"] === "histogram";
 export const isOrdinal = settings =>
   settings["graph.x_axis.scale"] === "ordinal";
+export const isLine = settings => settings.display === "line";
+export const isArea = settings => settings.display === "area";
 
 // bar histograms have special tick formatting:
 // * aligned with beginning of bar to show bin boundaries

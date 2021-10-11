@@ -12,6 +12,8 @@ import MetabaseSettings from "metabase/lib/settings";
 import { MetabaseApi } from "metabase/services";
 import Databases from "metabase/entities/databases";
 
+import { editParamsForUserControlledScheduling } from "./editParamsForUserControlledScheduling";
+
 // Default schedules for db sync and deep analysis
 export const DEFAULT_SCHEDULES = {
   cache_field_values: {
@@ -70,7 +72,10 @@ export const DELETE_DATABASE_FAILED =
   "metabase/admin/databases/DELETE_DATABASE_FAILED";
 export const MIGRATE_TO_NEW_SCHEDULING_SETTINGS =
   "metabase/admin/databases/MIGRATE_TO_NEW_SCHEDULING_SETTINGS";
-
+export const INITIALIZE_DATABASE_ERROR =
+  "metabase/admin/databases/INITIALIZE_DATABASE_ERROR";
+export const CLEAR_INITIALIZE_DATABASE_ERROR =
+  "metabase/admin/databases/CLEAR_INITIALIZE_DATABASE_ERROR";
 // NOTE: some but not all of these actions have been migrated to use metabase/entities/databases
 
 export const reset = createAction(RESET);
@@ -103,6 +108,8 @@ const migrateDatabaseToNewSchedulingSettings = database => {
 // initializeDatabase
 export const initializeDatabase = function(databaseId) {
   return async function(dispatch, getState) {
+    dispatch.action(CLEAR_INITIALIZE_DATABASE_ERROR);
+
     if (databaseId) {
       try {
         const action = await dispatch(
@@ -116,11 +123,8 @@ export const initializeDatabase = function(databaseId) {
           dispatch(migrateDatabaseToNewSchedulingSettings(database));
         }
       } catch (error) {
-        if (error.status === 404) {
-          //$location.path('/admin/databases/');
-        } else {
-          console.error("error fetching database", databaseId, error);
-        }
+        console.error("error fetching database", databaseId, error);
+        dispatch.action(INITIALIZE_DATABASE_ERROR, error);
       }
     } else {
       const newDatabase = {
@@ -163,10 +167,12 @@ export const proceedWithDbCreation = function(database) {
     if (database.details["let-user-control-scheduling"]) {
       try {
         dispatch.action(VALIDATE_DATABASE_STARTED);
+
         const { valid } = await MetabaseApi.db_validate({ details: database });
+
         if (valid) {
           dispatch.action(SET_DATABASE_CREATION_STEP, {
-            database: database,
+            database,
             step: DB_EDIT_FORM_SCHEDULING_TAB,
           });
         } else {
@@ -188,6 +194,8 @@ export const proceedWithDbCreation = function(database) {
 };
 
 export const createDatabase = function(database) {
+  editParamsForUserControlledScheduling(database);
+
   return async function(dispatch, getState) {
     try {
       dispatch.action(CREATE_DATABASE_STARTED, {});
@@ -326,6 +334,14 @@ const editingDatabase = handleActions(
   null,
 );
 
+const initializeError = handleActions(
+  {
+    [INITIALIZE_DATABASE_ERROR]: (state, { payload }) => payload,
+    [CLEAR_INITIALIZE_DATABASE_ERROR]: () => null,
+  },
+  null,
+);
+
 const deletes = handleActions(
   {
     [DELETE_DATABASE_STARTED]: (state, { payload: { databaseId } }) =>
@@ -364,6 +380,7 @@ const sampleDataset = handleActions(
 
 export default combineReducers({
   editingDatabase,
+  initializeError,
   deletionError,
   databaseCreationStep,
   deletes,

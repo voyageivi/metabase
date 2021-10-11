@@ -34,20 +34,35 @@
     (fn []
       (f (mdb.connection/db-type) (mdb.connection/jdbc-spec)))))
 
+(def ^{:const true
+       :doc   "The name of the \"All Users\" magic group."
+       :added "0.41.0"} all-users-group-name
+  "All Users")
+
 (def ^{:arglists '([])} ^metabase.models.permissions_group.PermissionsGroupInstance
   all-users
   "Fetch the `All Users` permissions group, creating it if needed."
-  (get-or-create-magic-group! "All Users"))
+  (get-or-create-magic-group! all-users-group-name))
+
+(def ^{:const true
+       :doc   "The name of the \"Administrators\" magic group."
+       :added "0.41.0"} admin-group-name
+  "Administrators")
 
 (def ^{:arglists '([])} ^metabase.models.permissions_group.PermissionsGroupInstance
   admin
   "Fetch the `Administators` permissions group, creating it if needed."
-  (get-or-create-magic-group! "Administrators"))
+  (get-or-create-magic-group! admin-group-name))
+
+(def ^{:const true
+       :doc   "The name of the \"MetaBot\" magic group."
+       :added "0.41.0"} metabot-group-name
+  "MetaBot")
 
 (def ^{:arglists '([])} ^metabase.models.permissions_group.PermissionsGroupInstance
   metabot
   "Fetch the `MetaBot` permissions group, creating it if needed."
-  (get-or-create-magic-group! "MetaBot"))
+  (get-or-create-magic-group! metabot-group-name))
 
 
 ;;; --------------------------------------------------- Validation ---------------------------------------------------
@@ -119,6 +134,6 @@
              :from      [[:core_user :user]]
              :left-join [[:permissions_group_membership :pgm] [:= :user.id :pgm.user_id]]
              :where     [:and [:= :user.is_active true]
-                              [:= :pgm.group_id (u/get-id group-or-id)]]
+                              [:= :pgm.group_id (u/the-id group-or-id)]]
              :order-by  [[:%lower.user.first_name :asc]
                          [:%lower.user.last_name :asc]]}))

@@ -36,7 +36,7 @@ describe("scenarios > visualizations > line chart", () => {
     cy.get(Y_AXIS_RIGHT_SELECTOR);
   });
 
-  it.skip("should be able to format data point values style independently on multi-series chart (metabase#13095)", () => {
+  it("should be able to format data point values style independently on multi-series chart (metabase#13095)", () => {
     visitQuestionAdhoc({
       dataset_query: {
         type: "query",
@@ -66,6 +66,32 @@ describe("scenarios > visualizations > line chart", () => {
     });
 
     cy.get(".value-labels").contains("30%");
+  });
+
+  it("should display an error message when there are more series than the chart supports", () => {
+    visitQuestionAdhoc({
+      display: "line",
+      dataset_query: {
+        database: 1,
+        type: "query",
+        query: {
+          "source-table": PRODUCTS_ID,
+          aggregation: [["count"]],
+          breakout: [
+            ["field", PRODUCTS.CREATED_AT, { "temporal-unit": "year" }],
+            ["field", PRODUCTS.TITLE, null],
+          ],
+        },
+      },
+      visualization_settings: {
+        "graph.dimensions": ["CREATED_AT", "TITLE"],
+        "graph.metrics": ["count"],
+      },
+    });
+
+    cy.findByText(
+      "This chart type doesn't support more than 100 series of data.",
+    );
   });
 
   it("should correctly display tooltip values when X-axis is numeric and style is 'Ordinal' (metabase#15998)", () => {
@@ -105,7 +131,7 @@ describe("scenarios > visualizations > line chart", () => {
     });
   });
 
-  it.skip("should be possible to update/change label for an empty row value (metabase#12128)", () => {
+  it("should be possible to update/change label for an empty row value (metabase#12128)", () => {
     visitQuestionAdhoc({
       dataset_query: {
         type: "native",
@@ -145,6 +171,30 @@ describe("scenarios > visualizations > line chart", () => {
       .should("contain", "cat1 new")
       .and("contain", "cat2")
       .and("contain", "cat3");
+  });
+
+  it("should interpolate null value by not rendering a data point (metabase#4122)", () => {
+    visitQuestionAdhoc({
+      dataset_query: {
+        type: "native",
+        native: {
+          query: `
+            select 'a' x, 1 y
+            union all
+            select 'b' x, null y
+            union all
+            select 'c' x, 2 y
+          `,
+          "template-tags": {},
+        },
+        database: 1,
+      },
+      display: "line",
+    });
+
+    cy.get(`.sub._0`)
+      .find("circle")
+      .should("have.length", 2);
   });
 
   describe.skip("tooltip of combined dashboard cards (multi-series) should show the correct column title (metabase#16249", () => {
@@ -337,6 +387,41 @@ describe("scenarios > visualizations > line chart", () => {
         .should("contain", RENAMED_FIRST_SERIES)
         .and("contain", RENAMED_SECOND_SERIES);
     }
+  });
+
+  describe("problems with the labels when showing only one row in the results (metabase#12782, metabase#4995)", () => {
+    beforeEach(() => {
+      visitQuestionAdhoc({
+        dataset_query: {
+          database: 1,
+          query: {
+            "source-table": PRODUCTS_ID,
+            aggregation: [["avg", ["field", PRODUCTS.PRICE, null]]],
+            breakout: [
+              ["field", PRODUCTS.CREATED_AT, { "temporal-unit": "year" }],
+              ["field", PRODUCTS.CATEGORY, null],
+            ],
+            filter: ["=", ["field", PRODUCTS.CATEGORY, null], "Doohickey"],
+          },
+          type: "query",
+        },
+        display: "line",
+      });
+      cy.findByText("Category is Doohickey");
+    });
+
+    it.skip("should not drop the chart legend (metabase#4995)", () => {
+      cy.get(".LegendItem").should("contain", "Doohickey");
+    });
+
+    it("should display correct axis labels (metabase#12782)", () => {
+      cy.get(".x-axis-label")
+        .invoke("text")
+        .should("eq", "Created At");
+      cy.get(".y-axis-label")
+        .invoke("text")
+        .should("eq", "Average of Price");
+    });
   });
 });
 

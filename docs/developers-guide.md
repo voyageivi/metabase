@@ -8,11 +8,11 @@
 
 # Contributing
 
-In general, we like to have an open issue for every pull request as a place to discuss the nature of any bug or proposed improvement. Each pull request should address a single issue, and contain both the fix as well as a description of how the pull request and tests that validate that the PR fixes the issue in question.
+In general, we like to have an open issue for every pull request as a place to discuss the nature of any bug or proposed improvement. Each pull request should address a single issue, and contain both the fix as well as a description of the pull request and tests that validate that the PR fixes the issue in question.
 
 For significant feature additions, it is expected that discussion will have taken place in the attached issue. Any feature that requires a major decision to be reached will need to have an explicit design document written. The goals of this document are to make explicit the assumptions, constraints and tradeoffs any given feature implementation will contain. The point is not to generate documentation but to allow discussion to reference a specific proposed design and to allow others to consider the implications of a given design.
 
-We don't like getting sued, so before merging any pull request, we'll need each person contributing code to sign a Contributor License Agreement [here](https://docs.google.com/a/metabase.com/forms/d/1oV38o7b9ONFSwuzwmERRMi9SYrhYeOrkbmNaq9pOJ_E/viewform)
+We don't like getting sued, so before merging any pull request, we'll need each person contributing code to sign a Contributor License Agreement [here](https://docs.google.com/a/metabase.com/forms/d/1oV38o7b9ONFSwuzwmERRMi9SYrhYeOrkbmNaq9pOJ_E/viewform).
 
 # Development on Windows
 
@@ -22,18 +22,17 @@ If you have problems with your development environment, make sure that you are n
 
 # Install Prerequisites
 
-These are the set of tools which are required in order to complete any build of the Metabase code. Follow the links to download and install them on your own before continuing.
+These are the tools which are required in order to complete any build of the Metabase code. Follow the links to download and install them on your own before continuing.
 
-1. [Clojure (ttps://clojure.org)](https://clojure.org/guides/getting_started) - install the latest release by following the guide depending on your OS
-2. [Java Development Kit JDK (https://adoptopenjdk.net/releases.html)](https://adoptopenjdk.net/releases.html) - you need to install JDK 11 (./operations-guide/java-versions.md)
+1. [Clojure (https://clojure.org)](https://clojure.org/guides/getting_started) - install the latest release by following the guide depending on your OS
+2. [Java Development Kit JDK (https://adoptopenjdk.net/releases.html)](https://adoptopenjdk.net/releases.html) - you need to install JDK 11 ([more info on Java versions](./operations-guide/java-versions.md))
 3. [Node.js (http://nodejs.org/)](http://nodejs.org/) - latest LTS release
 4. [Yarn package manager for Node.js](https://yarnpkg.com/) - latest release of version 1.x - you can install it in any OS by doing `npm install --global yarn`
-5. [Leiningen (http://leiningen.org/)](http://leiningen.org/) - latest release
 
 On a most recent stable Ubuntu/Debian, all the tools above, with the exception of Clojure, can be installed by using:
 
 ```
-sudo apt install openjdk-11-jdk nodejs leiningen && sudo npm install --global yarn
+sudo apt install openjdk-11-jdk nodejs && sudo npm install --global yarn
 ```
 If you have multiple JDK versions installed in your machine, be sure to switch your JDK before building by doing `sudo update-alternatives --config java` and selecting Java 11 in the menu
 
@@ -59,7 +58,7 @@ If you plan to work on the Metabase code and make changes then you'll need to un
 
 ### Overview
 
-The Metabase application has two basic compnents:
+The Metabase application has two basic components:
 
 1. a backend written in Clojure which contains a REST API as well as all the relevant code for talking to databases and processing queries.
 2. a frontend written as a Javascript single-page application which provides the web UI.
@@ -79,7 +78,7 @@ $ yarn
 
 Run your backend development server with
 
-    lein run
+    clojure -M:run
 
 Start the frontend build process with
 
@@ -129,7 +128,7 @@ which will run unit and Cypress end-to-end tests in sequence.
 
 ### Cypress end-to-end tests
 
-End-to-end tests simulate realistic sequences of user interactions. Read more about how we approach end-to-end testing with Cypress in our [wiki page](https://github.com/metabase/metabase/wiki/E2E-Tests-with-Cypress).
+End-to-end tests simulate realistic sequences of user interactions. Read more about how we approach [end-to-end testing with Cypress](developers-e2e-tests.md).
 
 Cypress end-to-end tests use an enforced file naming convention `<test-suite-name>.cy.spec.js` to separate them from unit tests.
 
@@ -150,12 +149,13 @@ Leiningen and your REPL are the main development tools for the backend. There ar
 
 And of course your Jetty development server is available via
 
-    lein run
+    clojure -M:run
 
 ### Building drivers
 
-Most of the drivers Metabase uses to connect to external data warehouse databases are separate Leiningen projects under the `modules/` subdirectory. When running Metabase via `lein`, you'll
-need to build these drivers in order to have access to them. You can build drivers as follows:
+Most of the drivers Metabase uses to connect to external data warehouse databases are separate projects under the
+`modules/` subdirectory. When running Metabase via `clojure`, you'll need to build these drivers in order to have access
+to them. You can build drivers as follows:
 
 ```
 # Build the 'mongo' driver
@@ -169,41 +169,58 @@ need to build these drivers in order to have access to them. You can build drive
 ./bin/build-drivers.sh
 ```
 
-The first time you build a driver, it will be a bit slow, because Metabase needs to build the core project a couple of times so the driver can use it as a dependency; you can take comfort in the
-fact that you won't need to build the driver again after that. Alternatively, running Metabase 1.0+ from the uberjar will unpack all of the pre-built drivers into your plugins directory; you can
-do this instead if you already have a Metabase uberjar (just make sure `plugins` is in the root directory of the Metabase source, i.e. the same directory as `project.clj`).
+### Including driver source paths for development or other tasks
 
-### Including driver source paths for development or other Leiningen tasks
-
-For development when running various Leiningen tasks you can add the `include-all-drivers` profile to merge the drivers' dependencies and source paths into the Metabase
-project:
+For development when running various Leiningen tasks you can add the `drivers` and `drivers-dev` aliases to merge the
+drivers' dependencies and source paths into the Metabase project:
 
 ```
-# Install dependencies
-lein with-profiles +include-all-drivers deps
+# Install dependencies, including for drivers
+clojure -P -X:dev:ci:drivers:drivers-dev
 ```
-
-This profile is added by default when running `lein repl`, tests, and linters.
 
 #### Unit Tests / Linting
 
 Run unit tests with
 
-    lein test
+    # OSS tests only
+    clojure -X:dev:test
 
-or a specific test with
+    # OSS + EE tests
+    clojure -X:dev:ee:ee-dev:test
 
-    lein test metabase.api.session-test
+or a specific test (or test namespace) with
+
+    # run tests in only one namespace (pass in a symbol)
+    clojure -X:dev:test :only metabase.api.session-test
+
+    # run one specific test (pass in a qualified symbol)
+    clojure -X:dev:test :only metabase.api.session-test/my-test
+
+    # run tests in one specific folder (test/metabase/util in this example)
+    # pass arg in double-quotes so Clojure CLI interprets it as a string;
+    # our test runner treats strings as directories
+    clojure -X:dev:test :only '"test/metabase/util"'
 
 By default, the tests only run against the `h2` driver. You can specify which drivers to run tests against with the env var `DRIVERS`:
 
-    DRIVERS=h2,postgres,mysql,mongo lein test
+    DRIVERS=h2,postgres,mysql,mongo clojure -X:dev:drivers:drivers-dev:test
 
 Some drivers require additional environment variables when testing since they are impossible to run locally (such as Redshift and Bigquery). The tests will fail on launch and let you know what parameters to supply if needed.
 
 ##### Run the linters:
 
-    lein eastwood && lein bikeshed && lein docstring-checker && lein check-namespace-decls && ./bin/reflection-linter
+`clj-kondo` must be installed separately; see https://github.com/clj-kondo/clj-kondo/blob/master/doc/install.md for
+instructions.
+
+    # Run Eastwood
+    clojure -X:dev:ee:ee-dev:drivers:drivers-dev:eastwood
+
+    # Run the namespace checker
+    clojure -X:dev:ee:ee-dev:drivers:drivers-dev:namespace-checker
+
+    # Run clj-kondo
+    clj-kondo --parallel --lint src shared/src enterprise/backend/src --config lint-config.edn
 
 #### Developing with Emacs
 

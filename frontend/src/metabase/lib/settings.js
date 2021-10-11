@@ -64,7 +64,6 @@ class Settings {
 
   setAll(settings: SettingsMap) {
     for (const [key, value] of Object.entries(settings)) {
-      // $FlowFixMe
       this.set(key, value);
     }
   }
@@ -122,6 +121,11 @@ class Settings {
     return this.get("anon-tracking-enabled") || false;
   }
 
+  formattingOptions() {
+    const opts = this.get("custom-formatting");
+    return opts && opts["type/Temporal"] ? opts["type/Temporal"] : {};
+  }
+
   versionInfoLastChecked() {
     const ts = this.get("version-info-last-checked");
     if (ts) {
@@ -151,6 +155,10 @@ class Settings {
       anchor = `#${anchor}`;
     }
     return `https://www.metabase.com/docs/${tag}/${page}${anchor}`;
+  }
+
+  storeUrl(path = "") {
+    return `https://store.metabase.com/${path}`;
   }
 
   newVersionAvailable() {
@@ -216,9 +224,7 @@ class Settings {
 
     const descriptions = {};
     for (const [name, clause] of Object.entries(PASSWORD_COMPLEXITY_CLAUSES)) {
-      // $FlowFixMe:
       if (!clause.test(requirements, password)) {
-        // $FlowFixMe:
         descriptions[name] = clause.description(requirements);
       }
     }

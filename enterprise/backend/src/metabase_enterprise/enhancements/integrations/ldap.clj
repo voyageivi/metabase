@@ -35,13 +35,17 @@
   :type    :boolean
   :default false)
 
+(defsetting ldap-group-membership-filter
+  (deferred-tru "Group membership lookup filter. The placeholders '{dn}' and '{uid}' will be replaced by the user''s Distinguished Name and UID, respectively.")
+  :default "(member={dn})")
+
 (defn- syncable-user-attributes [m]
   (when (ldap-sync-user-attributes)
     (apply dissoc m :objectclass (map (comp keyword u/lower-case-en) (ldap-sync-user-attributes-blacklist)))))
 
 (defn- attribute-synced-user
   [{:keys [attributes first-name last-name email]}]
-  (when-let [user (db/select-one [User :id :last_login :first_name :last_name :login_attributes]
+  (when-let [user (db/select-one [User :id :last_login :first_name :last_name :login_attributes :is_active]
                                  :%lower.email (u/lower-case-en email))]
             (let [syncable-attributes (syncable-user-attributes attributes)
                   old-first-name (:first_name user)
@@ -58,7 +62,7 @@
               (if (seq user-changes)
                 (do
                   (db/update! User (:id user) user-changes)
-                  (db/select-one [User :id :last_login] :id (:id user))) ; Reload updated user
+                  (db/select-one [User :id :last_login :is_active] :id (:id user))) ; Reload updated user
                 user))))
 
 (s/defn ^:private find-user* :- (s/maybe EEUserInfo)
@@ -66,22 +70,30 @@
    username        :- su/NonBlankString
    settings        :- i/LDAPSettings]
   (when-let [result (default-impl/search ldap-connection username settings)]
-    (when-let [user-info (default-impl/ldap-search-result->user-info ldap-connection result settings)]
+    (when-let [user-info (default-impl/ldap-search-result->user-info
+                          ldap-connection
+                          result
+                          settings
+                          (ldap-group-membership-filter))]
       (assoc user-info :attributes (syncable-user-attributes result)))))
 
 (s/defn ^:private fetch-or-create-user!* :- (class User)
   [{:keys [first-name last-name email groups attributes], :as user-info} :- EEUserInfo
    {:keys [sync-groups?], :as settings}                                  :- i/LDAPSettings]
   (let [user (or (attribute-synced-user user-info)
-                 (user/create-new-ldap-auth-user!
-                  {:first_name       (or first-name (trs "Unknown"))
-                   :last_name        (or last-name (trs "Unknown"))
-                   :email            email
-                   :login_attributes attributes}))]
+                 (-> (user/create-new-ldap-auth-user! {:first_name       (or first-name (trs "Unknown"))
+                                                       :last_name        (or last-name (trs "Unknown"))
+                                                       :email            email
+                                                       :login_attributes attributes})
+                     (assoc :is_active true)))]
     (u/prog1 user
       (when sync-groups?
-        (let [group-ids (default-impl/ldap-groups->mb-group-ids groups settings)]
-          (integrations.common/sync-group-memberships! user group-ids (ldap-sync-admin-group)))))))
+        (let [group-ids            (default-impl/ldap-groups->mb-group-ids groups settings)
+              all-mapped-group-ids (default-impl/all-mapped-group-ids settings)]
+          (integrations.common/sync-group-memberships! user
+                                                       group-ids
+                                                       all-mapped-group-ids
+                                                       (ldap-sync-admin-group)))))))
 
 (def ^:private impl
   (reify

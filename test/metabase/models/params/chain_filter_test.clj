@@ -1,6 +1,7 @@
 (ns metabase.models.params.chain-filter-test
   (:require [clojure.test :refer :all]
-            [metabase.models :refer [FieldValues]]
+            [metabase.models :refer [Field FieldValues]]
+            [metabase.models.field-values :as field-values]
             [metabase.models.params.chain-filter :as chain-filter]
             [metabase.test :as mt]
             [toucan.db :as db]))
@@ -68,6 +69,89 @@
       (is (= [1 2 3]
              (chain-filter venues.price {categories.name ["Bakery" "BBQ"]
                                          users.id        [1 2 3]}))))))
+
+(def ^:private megagraph
+  "A large graph that is hugely interconnected. All nodes can get to 50 and 50 has an edge to :end. But the fastest
+  route is [[:start 50] [50 :end]] and we should quickly identify this last route. Basically handy to demonstrate that
+  we are doing breadth first search rather than depth first search. Depth first would identify 1 -> 2 -> 3 ... 49 ->
+  50 -> end"
+  (let [big 50]
+    (merge-with merge
+                (reduce (fn [m [x y]] (assoc-in m [x y] [[x y]]))
+                        {}
+                        (for [x     (range (inc big))
+                              y     (range (inc big))
+                              :when (not= x y)]
+                          [x y]))
+                {:start (reduce (fn [m x] (assoc m x [[:start x]]))
+                                {}
+                                (range (inc big)))}
+                {big    {:end [[big :end]]}})))
+
+(def ^:private megagraph-single-path
+  "Similar to the megagraph above, this graph only has a single path through a hugely interconnected graph. A naive
+  graph traversal will run out of memory or take quite a long time to find the traversal:
+
+  [[:start 90] [90 200] [200 :end]]
+
+  There is only one path to end (from 200) and only one path to 200 from 90. If you take out the seen nodes this path
+  will not be found as the traversal advances through all of the 50 paths from start, all of the 50 paths from 1, all
+  of the 50 paths from 2, ..."
+  (merge-with merge
+              ;; every node is linked to every other node (1 ... 199)
+              (reduce (fn [m [x y]] (assoc-in m [x y] [[x y]]))
+                      {}
+                      (for [x     (range 200)
+                            y     (range 200)
+                            :when (not= x y)]
+                        [x y]))
+              {:start (reduce (fn [m x] (assoc m x [[:start x]]))
+                              {}
+                              (range 200))}
+              ;; only 90 reaches 200 and only 200 (big) reaches the end
+              {90  {200 [[90 200]]}
+               200 {:end [[200 :end]]}}))
+
+(deftest traverse-graph-test
+  (testing "If no need to join, returns immediately"
+    (is (nil? (#'chain-filter/traverse-graph {} :start :start 5))))
+  (testing "Finds a simple hop"
+    (let [graph {:start {:end [:start->end]}}]
+      (is (= [:start->end]
+             (#'chain-filter/traverse-graph graph :start :end 5))))
+    (testing "Finds over a few hops"
+      (let [graph {:start {:a [:start->a]}
+                   :a     {:b [:a->b]}
+                   :b     {:c [:b->c]}
+                   :c     {:end [:c->end]}}]
+        (is (= [:start->a :a->b :b->c :c->end]
+               (#'chain-filter/traverse-graph graph :start :end 5)))
+        (testing "But will not exceed the max depth"
+          (is (nil? (#'chain-filter/traverse-graph graph :start :end 2))))))
+    (testing "Can find a path in a dense and large graph"
+      (is (= [[:start 50] [50 :end]]
+             (#'chain-filter/traverse-graph megagraph :start :end 5)))
+      (is (= [[:start 90] [90 200] [200 :end]]
+             (#'chain-filter/traverse-graph megagraph-single-path :start :end 5))))
+    (testing "Returns nil if there is no path"
+      (let [graph {:start {1 [[:start 1]]}
+                   1      {2 [[1 2]]}
+                   ;; no way to get to 3
+                   3      {4 [[3 4]]}
+                   4      {:end [[4 :end]]}}]
+        (is (nil? (#'chain-filter/traverse-graph graph :start :end 5)))))
+    (testing "Not fooled by loops"
+      (let [graph {:start {:a [:start->a]}
+                   :a     {:b [:a->b]
+                           :a [:b->a]}
+                   :b     {:c [:b->c]
+                           :a [:c->a]
+                           :b [:c->b]}
+                   :c     {:end [:c->end]}}]
+        (is (= [:start->a :a->b :b->c :c->end]
+               (#'chain-filter/traverse-graph graph :start :end 5)))
+        (testing "But will not exceed the max depth"
+          (is (nil? (#'chain-filter/traverse-graph graph :start :end 2))))))))
 
 (deftest find-joins-test
   (mt/dataset airports
@@ -320,3 +404,36 @@
     (mt/$ids
       (is (= [:time-interval $checkins.date -32 :week {:include-current false}]
              (#'chain-filter/filter-clause $$checkins %checkins.date "past32weeks"))))))
+
+(mt/defdataset nil-values-dataset
+  [["tbl"
+    [{:field-name "mytype", :base-type :type/Text}
+     {:field-name "myfield", :base-type :type/Text}]
+    [["value" "value"]
+     ["null" nil]
+     ["empty" ""]]]])
+
+(deftest nil-values-test
+  (testing "Chain filter fns should work for fields that have nil or empty values (#17659)"
+    (mt/dataset nil-values-dataset
+      (mt/$ids tbl
+        (letfn [(thunk []
+                  (doseq [[field expected-values] {:mytype  ["empty" "null" "value"]
+                                                   :myfield [nil "" "value"]}]
+                    (testing "chain-filter"
+                      ;; sorting can differ a bit based on whether we use FieldValues or not... not sure why this is
+                      ;; the case, but that's not important for this test anyway. Just sort everything
+                      (is (= expected-values
+                             (sort (chain-filter/chain-filter (mt/id :tbl field) {})))))
+                    (testing "chain-filter-search"
+                      (is (= ["value"]
+                             (chain-filter/chain-filter-search (mt/id :tbl field) {} "val"))))))]
+          (testing "no FieldValues"
+            (thunk))
+          (testing "with FieldValues for myfield"
+            (mt/with-temp FieldValues [_ {:field_id %myfield, :values ["value" nil ""]}]
+              (mt/with-temp-vals-in-db Field %myfield {:has_field_values "auto-list"}
+                (testing "Sanity check: make sure we will actually use the cached FieldValues"
+                  (is (field-values/field-should-have-field-values? %myfield))
+                  (is (#'chain-filter/use-cached-field-values? %myfield {})))
+                (thunk)))))))))

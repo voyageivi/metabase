@@ -6,7 +6,7 @@
             [metabase.mbql.normalize :as normalize]
             [metabase.mbql.util :as mbql.u]
             [metabase.models.collection :as collection]
-            [metabase.models.dependency :as dependency]
+            [metabase.models.dependency :as dependency :refer [Dependency]]
             [metabase.models.field-values :as field-values]
             [metabase.models.interface :as i]
             [metabase.models.params :as params]
@@ -124,7 +124,7 @@
   "Check that a `card`, if it is using another Card as its source, does not have circular references between source
   Cards. (e.g. Card A cannot use itself as a source, or if A uses Card B as a source, Card B cannot use Card A, and so
   forth.)"
-  [{query :dataset_query, id :id}]      ; don't use `u/get-id` here so that we can use this with `pre-insert` too
+  [{query :dataset_query, id :id}]      ; don't use `u/the-id` here so that we can use this with `pre-insert` too
   (loop [query query, ids-already-seen #{id}]
     (let [source-card-id (qputil/query->source-card-id query)]
       (cond
@@ -199,7 +199,8 @@
 
 ;; Cards don't normally get deleted (they get archived instead) so this mostly affects tests
 (defn- pre-delete [{:keys [id]}]
-  (db/delete! 'Revision :model "Card", :model_id id))
+  (db/delete! 'Revision :model "Card", :model_id id)
+  (db/delete! 'Dependency :model "Card", :model_id id))
 
 (defn- result-metadata-out
   "Transform the Card result metadata as it comes out of the DB. Convert columns to keywords where appropriate."

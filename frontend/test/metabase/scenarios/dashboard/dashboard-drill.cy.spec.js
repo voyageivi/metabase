@@ -2,7 +2,9 @@ import {
   restore,
   modal,
   popover,
+  filterWidget,
   createNativeQuestion,
+  showDashboardCardActions,
 } from "__support__/e2e/cypress";
 
 import { SAMPLE_DATASET } from "__support__/e2e/cypress_sample_dataset";
@@ -27,7 +29,8 @@ describe("scenarios > dashboard > dashboard drill", () => {
       cy.visit(`/dashboard/${dashboardId}`),
     );
     cy.icon("pencil").click();
-    cy.icon("click").click({ force: true });
+    showDashboardCardActions();
+    cy.icon("click").click();
 
     // configure a URL click through on the  "MY_NUMBER" column
     cy.findByText("On-click behavior for each column")
@@ -61,7 +64,7 @@ describe("scenarios > dashboard > dashboard drill", () => {
     cy.location("pathname").should("eq", "/foo/111/param-value");
   });
 
-  it.skip("should insert values from hidden column on custom destination URL click through (metabase#13927)", () => {
+  it("should insert values from hidden column on custom destination URL click through (metabase#13927)", () => {
     cy.log("Create a question");
 
     createNativeQuestion(
@@ -140,7 +143,8 @@ describe("scenarios > dashboard > dashboard drill", () => {
       cy.visit(`/dashboard/${dashboardId}`),
     );
     cy.icon("pencil").click();
-    cy.icon("click").click({ force: true });
+    showDashboardCardActions();
+    cy.icon("click").click();
 
     // configure a dashboard target for the "MY_NUMBER" column
     cy.findByText("On-click behavior for each column")
@@ -191,7 +195,8 @@ describe("scenarios > dashboard > dashboard drill", () => {
       );
     });
     cy.icon("pencil").click();
-    cy.icon("click").click({ force: true });
+    showDashboardCardActions();
+    cy.icon("click").click();
 
     // configure clicks on "MY_NUMBER to update the param
     cy.findByText("On-click behavior for each column")
@@ -233,7 +238,8 @@ describe("scenarios > dashboard > dashboard drill", () => {
       cy.visit(`/dashboard/${dashboardId}`),
     );
     cy.icon("pencil").click();
-    cy.icon("click").click({ force: true });
+    showDashboardCardActions();
+    cy.icon("click").click();
 
     // configure clicks on "MY_NUMBER to update the param
     cy.findByText("On-click behavior for each column")
@@ -329,7 +335,7 @@ describe("scenarios > dashboard > dashboard drill", () => {
     });
   });
 
-  it.skip("should drill-through on a foreign key (metabase#8055)", () => {
+  it("should drill-through on a foreign key (metabase#8055)", () => {
     // In this test we're using already present dashboard ("Orders in a dashboard")
     const FILTER_ID = "7c9ege62";
 
@@ -389,7 +395,7 @@ describe("scenarios > dashboard > dashboard drill", () => {
     cy.findByText("Fantastic Wool Shirt");
   });
 
-  it.skip("should apply correct date range on a graph drill-through (metabase#13785)", () => {
+  it("should apply correct date range on a graph drill-through (metabase#13785)", () => {
     cy.log("Create a question");
 
     cy.createQuestion({
@@ -473,8 +479,8 @@ describe("scenarios > dashboard > dashboard drill", () => {
           .eq(14) // August 2017 (Total of 12 reviews, 9 unique days)
           .click({ force: true });
 
-        cy.wait("@cardQuery.2");
-        cy.url().should("include", "2017-08-01~2017-08-31");
+        cy.wait("@cardQuery");
+        cy.url().should("include", "2017-08");
         cy.get(".bar").should("have.length", 1);
         // Since hover doesn't work in Cypress we can't assert on the popover that's shown when one hovers the bar
         // But when this issue gets fixed, Y-axis should definitely show "12" (total count of reviews)
@@ -518,7 +524,7 @@ describe("scenarios > dashboard > dashboard drill", () => {
     cy.location("pathname").should("eq", "/it/worked");
   });
 
-  it.skip("should not remove click behavior on 'reset to defaults' (metabase#14919)", () => {
+  it("should not remove click behavior on 'reset to defaults' (metabase#14919)", () => {
     const LINK_NAME = "Home";
 
     cy.createQuestion({
@@ -562,7 +568,8 @@ describe("scenarios > dashboard > dashboard drill", () => {
         cy.visit(`/dashboard/${DASHBOARD_ID}`);
         cy.icon("pencil").click();
         // Edit "Visualization options"
-        cy.get(".DashCard .Icon-palette").click({ force: true });
+        showDashboardCardActions();
+        cy.icon("palette").click();
         cy.get(".Modal").within(() => {
           cy.findByText("Reset to defaults").click();
           cy.button("Done").click();
@@ -576,7 +583,7 @@ describe("scenarios > dashboard > dashboard drill", () => {
     });
   });
 
-  it.skip('should drill-through on PK/FK to the "object detail" when filtered by explicit joined column (metabase#15331)', () => {
+  it('should drill-through on PK/FK to the "object detail" when filtered by explicit joined column (metabase#15331)', () => {
     cy.server();
     cy.route("POST", "/api/dataset").as("dataset");
 
@@ -719,6 +726,168 @@ describe("scenarios > dashboard > dashboard drill", () => {
       });
     });
   });
+
+  it("should drill-through on chart based on a custom column (metabase#13289)", () => {
+    cy.server();
+    cy.route("POST", "/api/dataset").as("dataset");
+
+    cy.createQuestion({
+      name: "13289Q",
+      display: "line",
+      query: {
+        "source-table": ORDERS_ID,
+        expressions: {
+          two: ["+", 1, 1],
+        },
+        aggregation: [["count"]],
+        breakout: [
+          ["expression", "two"],
+          [
+            "field",
+            ORDERS.CREATED_AT,
+            {
+              "temporal-unit": "month",
+            },
+          ],
+        ],
+      },
+    }).then(({ body: { id: QUESTION_ID } }) => {
+      cy.createDashboard("13289D").then(({ body: { id: DASHBOARD_ID } }) => {
+        // Add question to the dashboard
+        cy.request("POST", `/api/dashboard/${DASHBOARD_ID}/cards`, {
+          cardId: QUESTION_ID,
+          row: 0,
+          col: 0,
+          sizeX: 12,
+          sizeY: 8,
+        });
+
+        cy.visit(`/dashboard/${DASHBOARD_ID}`);
+      });
+    });
+
+    cy.get(".Card circle")
+      .eq(1)
+      .click({ force: true });
+
+    cy.findByText("Zoom in").click();
+
+    cy.wait("@dataset");
+
+    cy.findByText("two is equal to 2");
+    cy.findByText("Created At is May, 2016");
+  });
+
+  describe("should preserve dashboard filter and apply it to the question on a drill-through (metabase#11503)", () => {
+    const ordersIdFilter = {
+      name: "Orders ID",
+      slug: "orders_id",
+      id: "82a5a271",
+      type: "id",
+      sectionId: "id",
+    };
+
+    const productsIdFilter = {
+      name: "Products ID",
+      slug: "products_id",
+      id: "a4dc1976",
+      type: "id",
+      sectionId: "id",
+    };
+
+    const parameters = [ordersIdFilter, productsIdFilter];
+
+    beforeEach(() => {
+      // Add filters to the dashboard
+      cy.request("PUT", "/api/dashboard/1", {
+        parameters,
+      });
+
+      // Connect those filters to the existing dashboard card
+      cy.request("PUT", "/api/dashboard/1/cards", {
+        cards: [
+          {
+            id: 1,
+            card_id: 1,
+            row: 0,
+            col: 0,
+            sizeX: 12,
+            sizeY: 8,
+            series: [],
+            visualization_settings: {},
+            parameter_mappings: [
+              {
+                parameter_id: ordersIdFilter.id,
+                card_id: 1,
+                target: ["dimension", ["field", ORDERS.ID, null]],
+              },
+              {
+                parameter_id: productsIdFilter.id,
+                card_id: 1,
+                target: [
+                  "dimension",
+                  [
+                    "field",
+                    PRODUCTS.ID,
+                    {
+                      "source-field": ORDERS.PRODUCT_ID,
+                    },
+                  ],
+                ],
+              },
+            ],
+          },
+        ],
+      });
+
+      cy.visit("/dashboard/1");
+    });
+
+    it("should correctly drill-through on Orders filter (metabase#11503-1)", () => {
+      setFilterValue(ordersIdFilter.name);
+
+      drillThroughCardTitle("Orders");
+
+      cy.findByText("37.65");
+      cy.findByText("110.93");
+      cy.findByText("52.72").should("not.exist");
+      cy.findByText("Showing 2 rows");
+
+      postDrillAssertion();
+    });
+
+    it("should correctly drill-through on Products filter (metabase#11503-2)", () => {
+      setFilterValue(productsIdFilter.name);
+
+      drillThroughCardTitle("Orders");
+
+      cy.findByText("37.65").should("not.exist");
+      cy.findAllByText("105.12");
+      cy.findByText("Showing 191 rows");
+
+      postDrillAssertion();
+    });
+
+    function setFilterValue(filterName) {
+      filterWidget()
+        .contains(filterName)
+        .click();
+      cy.findByPlaceholderText("Enter an ID").type("1,2,");
+      cy.button("Add filter").click();
+      cy.findByText("2 selections");
+    }
+
+    function postDrillAssertion() {
+      cy.findByText("ID is 2 selections").click();
+      popover().within(() => {
+        cy.get("li")
+          .should("have.length", 3) // The third one is an input field
+          .and("contain", "1")
+          .and("contain", "2");
+        cy.findByText("Update filter");
+      });
+    }
+  });
 });
 
 function createDashboardWithQuestion(
@@ -799,4 +968,11 @@ function setParamValue(paramName, text) {
     cy.findByPlaceholderText("Search by Name").type(text);
     cy.findByText("Add filter").click();
   });
+}
+
+function drillThroughCardTitle(title) {
+  cy.get(".Card-title")
+    .contains(title)
+    .click();
+  cy.contains(`Started from ${title}`);
 }

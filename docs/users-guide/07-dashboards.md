@@ -2,13 +2,20 @@
 
 ![Interactive dashboard](images/dashboards/interactive-dashboard.png)
 
+Quick links:
+
+- [Dashboard filters](08-dashboard-filters.md)
+- [Dashboard subscriptions](dashboard-subscriptions.md)
+- [Make your dashboards interactive](interactive-dashboards.md)
+- [Learn how to build great dashboards](https://www.metabase.com/learn/dashboards/index.html)
+
 ### What is a dashboard?
 
-**Dashboards** group questions and present them on a single page. You can think of dashboards as shareable reports that feature a set of related questions.
+**Dashboards** group questions and present them on a single page. You can think of dashboards as shareable reports that feature a set of related questions. You can set up [subscriptions to dashboards](dashboard-subscriptions.md) via email or Slack to receive the exported results of the dashboard's questions.
 
-A dashboard comprises a set of cards arranged on a grid. These cards can be questions - such as tables, charts, or maps - or cards can be text boxes.
+A dashboard comprises a set of cards arranged on a grid. These cards can be questions - such as [tables, charts, or maps](05-visualizing-results.md) - or they can be [text boxes](/learn/dashboards/markdown.html).
 
-You can add filter widgets to dashboards that filter data across multiple questions, and customize what happens when people click on a chart or a table.
+You can add [filter widgets to dashboards](08-dashboard-filters.md) that filter data identically across multiple questions, and [customize what happens when people click on a chart or a table](interactive-dashboards.md).
 
 You can make as many dashboards as you want. Go nuts.
 
@@ -62,8 +69,8 @@ Once you're in edit mode, you'll see a grid appear. You can move and resize the 
 
 ![Editing dashboard](images/dashboards/DashboardEdit.png)
 
-- **To move a card**, just click and drag the card.
-- **To resize a card**, click the handle at the bottom right corner of the card, and drag to resize.
+- **To move a card**, just click and drag the card. Other cards will move out of the way.
+- **To resize a card**, click the handle at the bottom right corner of the card, and drag to resize. Nearby cards will move away to accommodate the new size.
 - **To remove a card**, hover over the card, and click the X icon in the top right corner.
 
 Metabase will automatically update a question's display to make sure your data looks great at any size you choose.

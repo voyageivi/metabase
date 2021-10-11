@@ -91,7 +91,6 @@ export function applyChartTimeseriesXAxis(
   { xValues, xDomain, xInterval },
 ) {
   // find the first nonempty single series
-  // $FlowFixMe
   const firstSeries: SingleSeries = _.find(
     series,
     s => !datasetContainsNoResults(s.data),
@@ -223,7 +222,6 @@ export function applyChartQuantitativeXAxis(
   { xValues, xDomain, xInterval },
 ) {
   // find the first nonempty single series
-  // $FlowFixMe
   const firstSeries: SingleSeries = _.find(
     series,
     s => !datasetContainsNoResults(s.data),
@@ -296,13 +294,18 @@ export function applyChartOrdinalXAxis(
   { xValues, isHistogramBar },
 ) {
   // find the first nonempty single series
-  // $FlowFixMe
   const firstSeries: SingleSeries = _.find(
     series,
     s => !datasetContainsNoResults(s.data),
   );
 
   const dimensionColumn = firstSeries.data.cols[0];
+
+  const waterfallTotalX =
+    firstSeries.card.display === "waterfall" &&
+    chart.settings["waterfall.show_total"]
+      ? xValues[xValues.length - 1]
+      : null;
 
   if (chart.settings["graph.x_axis.labels_enabled"]) {
     chart.xAxisLabel(
@@ -318,14 +321,18 @@ export function applyChartOrdinalXAxis(
     chart.xAxis().ticks(xValues.length);
     adjustXAxisTicksIfNeeded(chart.xAxis(), chart.width(), xValues);
 
-    chart.xAxis().tickFormat(d =>
-      formatValue(d, {
+    chart.xAxis().tickFormat(d => {
+      if (waterfallTotalX && waterfallTotalX === d) {
+        return t`Total`;
+      }
+
+      return formatValue(d, {
         ...chart.settings.column(dimensionColumn),
         type: "axis",
         compact: chart.settings["graph.x_axis.labels_enabled"] === "compact",
         noRange: isHistogramBar,
-      }),
-    );
+      });
+    });
   } else {
     chart.xAxis().ticks(0);
     chart.xAxis().tickFormat("");
@@ -479,10 +486,12 @@ export function getYValueFormatter(chart, series, yExtent) {
   if (chart.settings["stackable.stack_type"] === "normalized") {
     return value => Math.round(value * 100) + "%";
   }
-  const metricColumn = series[0].data.cols[1];
-  const columnSettings = chart.settings.column(metricColumn);
-  return (value, options) => {
-    const roundedValue = maybeRoundValueToZero(value, yExtent);
+
+  return (value, options, seriesIndex = 0) => {
+    const metricColumn = series[seriesIndex].data.cols[1];
+    const columnSettings = chart.settings.column(metricColumn);
+    const columnExtent = options.extent || yExtent;
+    const roundedValue = maybeRoundValueToZero(value, columnExtent);
     return formatValue(roundedValue, { ...columnSettings, ...options });
   };
 }

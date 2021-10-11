@@ -173,15 +173,19 @@
                  (:public_uuid dashboard))))))))
 
 (deftest post-update-test
-  (tt/with-temp* [Dashboard           [{dashboard-id :id} {:name "Lucky the Pigeon's Lucky Stuff"}]
+  (tt/with-temp* [Collection          [{collection-id-1 :id}]
+                  Collection          [{collection-id-2 :id}]
+                  Dashboard           [{dashboard-id :id} {:name "Lucky the Pigeon's Lucky Stuff", :collection_id collection-id-1}]
                   Card                [{card-id :id}]
-                  Pulse               [{pulse-id :id} {:dashboard_id dashboard-id}]
+                  Pulse               [{pulse-id :id} {:dashboard_id dashboard-id, :collection_id collection-id-1}]
                   DashboardCard       [{dashcard-id :id} {:dashboard_id dashboard-id, :card_id card-id}]
                   PulseCard           [{pulse-card-id :id} {:pulse_id pulse-id, :card_id card-id, :dashboard_card_id dashcard-id}]]
-    (testing "Pulse name updates"
-      (db/update! Dashboard dashboard-id :name "Lucky's Close Shaves")
+    (testing "Pulse name and collection-id updates"
+      (db/update! Dashboard dashboard-id :name "Lucky's Close Shaves" :collection_id collection-id-2)
       (is (= "Lucky's Close Shaves"
-             (db/select-one-field :name Pulse :id pulse-id))))
+             (db/select-one-field :name Pulse :id pulse-id)))
+      (is (= collection-id-2
+             (db/select-one-field :collection_id Pulse :id pulse-id))))
     (testing "PulseCard syncing"
       (tt/with-temp Card [{new-card-id :id}]
         (add-dashcard! dashboard-id new-card-id)
@@ -196,13 +200,13 @@
 (defn do-with-dash-in-collection [f]
   (tu/with-non-admin-groups-no-root-collection-perms
     (tt/with-temp* [Collection    [collection]
-                    Dashboard     [dash  {:collection_id (u/get-id collection)}]
+                    Dashboard     [dash  {:collection_id (u/the-id collection)}]
                     Database      [db    {:engine :h2}]
-                    Table         [table {:db_id (u/get-id db)}]
-                    Card          [card  {:dataset_query {:database (u/get-id db)
+                    Table         [table {:db_id (u/the-id db)}]
+                    Card          [card  {:dataset_query {:database (u/the-id db)
                                                           :type     :query
-                                                          :query    {:source-table (u/get-id table)}}}]
-                    DashboardCard [_ {:dashboard_id (u/get-id dash), :card_id (u/get-id card)}]]
+                                                          :query    {:source-table (u/the-id table)}}}]
+                    DashboardCard [_ {:dashboard_id (u/the-id dash), :card_id (u/the-id card)}]]
       (f db collection dash))))
 
 (defmacro with-dash-in-collection
@@ -224,7 +228,7 @@
     (testing (str "Check that if a Dashboard is in a Collection, someone who would otherwise be able to see it under "
                   "the old artifact-permissions regime will *NOT* be able to see it if they don't have permissions for "
                   "that Collection"))
-    (binding [api/*current-user-permissions-set* (atom #{(perms/object-path (u/get-id db))})]
+    (binding [api/*current-user-permissions-set* (atom #{(perms/object-path (u/the-id db))})]
       (is (= false
              (mi/can-read? dash))))
 

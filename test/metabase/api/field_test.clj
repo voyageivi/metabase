@@ -91,10 +91,10 @@
                    original-val)))
           ;; set it
           (mt/user-http-request :crowberto :put 200 (format "field/%d" field-id) {:name            "something else"
-                                                                                       :display_name    "yay"
-                                                                                       :description     "foobar"
-                                                                                       :semantic_type   :type/Name
-                                                                                       :visibility_type :sensitive})
+                                                                                  :display_name    "yay"
+                                                                                  :description     "foobar"
+                                                                                  :semantic_type   :type/Name
+                                                                                  :visibility_type :sensitive})
           (let [updated-val (simple-field-details (Field field-id))]
             (testing "updated value"
               (is (= {:name               "Field Test"
@@ -106,7 +106,7 @@
                      updated-val)))
             ;; unset it
             (mt/user-http-request :crowberto :put 200 (format "field/%d" field-id) {:description   nil
-                                                                                 :semantic_type nil})
+                                                                                    :semantic_type nil})
             (testing "response"
               (is (= {:name               "Field Test"
                       :display_name       "yay"
@@ -114,7 +114,26 @@
                       :semantic_type      nil
                       :visibility_type    :sensitive
                       :fk_target_field_id nil}
-                     (simple-field-details (Field field-id)))))))))))
+                     (simple-field-details (Field field-id)))))))))
+    (testing "updating coercion strategies"
+      (mt/with-temp Field [{field-id :id} {:name "Field Test"}]
+        (testing "When valid, updates coercion strategy and effective type"
+          (is (= ["type/DateTime" "Coercion/YYYYMMDDHHMMSSString->Temporal"]
+                 ((juxt :effective_type :coercion_strategy)
+                  (mt/user-http-request :crowberto :put 200 (format "field/%d" field-id)
+                                        {:coercion_strategy :Coercion/YYYYMMDDHHMMSSString->Temporal})))))
+        (testing "Sending a nil coercion_strategy restores the effective type"
+          (is (= ["type/Text" nil]
+                 ((juxt :effective_type :coercion_strategy)
+                  (mt/user-http-request :crowberto :put 200 (format "field/%d" field-id)
+                                        {:coercion_strategy nil}))))))
+      (mt/with-temp Field [{field-id :id} {:name "Field Test"}]
+        (testing "When not a valid strategy does not change the coercion or effective type"
+          (is (= ["type/Text" nil]
+                 ((juxt :effective_type :coercion_strategy)
+                  (mt/user-http-request :crowberto :put 200 (format "field/%d" field-id)
+                                        ;; unix is an integer->Temporal conversion
+                                        {:coercion_strategy :Coercion/UNIXMicroSeconds->DateTime})))))))))
 
 (deftest remove-fk-semantic-type-test
   (testing "PUT /api/field/:id"
@@ -536,7 +555,7 @@
                   :human_readable_field_id false
                   :field_id                true}
                  (mt/boolean-ids-and-timestamps (dimension-for-field field-id)))))
-        (mt/user-http-request :crowberto :put 200 (format "field/%d" field-id) {:semantic_type "type/Text"})
+        (mt/user-http-request :crowberto :put 200 (format "field/%d" field-id) {:semantic_type "type/AvatarURL"})
         (testing "after API request"
           (is (= []
                  (dimension-for-field field-id))))))
@@ -576,7 +595,8 @@
              (mt/format-rows-by [int str]
                (field-api/search-values (Field (mt/id :venues :id))
                                         (Field (mt/id :venues :name))
-                                        "Red")))))
+                                        "Red"
+                                        nil)))))
     (tqp.test/test-timeseries-drivers
       (is (= [["139" "Red Medicine"]
               ["148" "Fred 62"]
@@ -589,7 +609,16 @@
               ["977" "Fred 62"]]
              (field-api/search-values (Field (mt/id :checkins :id))
                                       (Field (mt/id :checkins :venue_name))
-                                      "Red"))))))
+                                      "Red"
+                                      nil)))))
+  (testing "make sure limit works"
+    (mt/test-drivers (mt/normal-drivers)
+      (is (= [[1 "Red Medicine"]]
+             (mt/format-rows-by [int str]
+                                (field-api/search-values (Field (mt/id :venues :id))
+                                                         (Field (mt/id :venues :name))
+                                                         "Red"
+                                                         1)))))))
 
 (deftest search-values-with-field-same-as-search-field-test
   (testing "make sure it also works if you use the same Field twice"
@@ -597,9 +626,11 @@
       (is (= [["Fred 62" "Fred 62"] ["Red Medicine" "Red Medicine"]]
              (field-api/search-values (Field (mt/id :venues :name))
                                       (Field (mt/id :venues :name))
-                                      "Red"))))
+                                      "Red"
+                                      nil))))
     (tqp.test/test-timeseries-drivers
       (is (= [["Fred 62" "Fred 62"] ["Red Medicine" "Red Medicine"]]
              (field-api/search-values (Field (mt/id :checkins :venue_name))
                                       (Field (mt/id :checkins :venue_name))
-                                      "Red"))))))
+                                      "Red"
+                                      nil))))))

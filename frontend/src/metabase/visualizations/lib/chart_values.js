@@ -99,7 +99,7 @@ export function onRenderValueLabels(
           !showAll && barCount > 1 && isBarLike(display) && barWidth < 20;
         return { x, y, showLabelBelow, seriesIndex, rotated, hidden };
       })
-      .filter(d => !(isBarLike(display) && d.y === 0));
+      .filter(d => !(display === "bar" && d.y === 0));
 
     if (display === "waterfall" && data.length > 0) {
       let total = 0;
@@ -269,12 +269,15 @@ export function onRenderValueLabels(
         // only create labels for the correct class(es) given the type of label
         .filter(d => !(d.rotated ^ (klass === "value-label-white")))
         .attr("class", klass)
-        .text(({ y, seriesIndex }) =>
-          formatYValue(y, {
+        .text(({ y, seriesIndex }) => {
+          const options = {
+            extent: [],
             negativeInParentheses: displays[seriesIndex] === "waterfall",
             compact: compact === null ? compactForSeries[seriesIndex] : compact,
-          }),
-        ),
+          };
+
+          return formatYValue(y, options, seriesIndex);
+        }),
     );
   };
 

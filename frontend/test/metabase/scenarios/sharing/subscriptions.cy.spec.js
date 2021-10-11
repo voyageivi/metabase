@@ -4,6 +4,7 @@ import {
   describeWithToken,
   popover,
   mockSessionProperty,
+  sidebar,
 } from "__support__/e2e/cypress";
 import { USERS } from "__support__/e2e/cypress_data";
 const { admin } = USERS;
@@ -14,19 +15,23 @@ describe("scenarios > dashboard > subscriptions", () => {
     cy.signInAsAdmin();
   });
 
-  it("should not allow creation if there are no dashboard cards", () => {
-    cy.createDashboard("Empty Dashboard").then(
-      ({ body: { id: DASHBOARD_ID } }) => {
-        cy.visit(`/dashboard/${DASHBOARD_ID}`);
-      },
-    );
-    // It would be great if we can use either aria-attributes or better class naming to suggest when icons are disabled
+  it("should not allow sharing if there are no dashboard cards", () => {
+    cy.createDashboard("15077D").then(({ body: { id: DASHBOARD_ID } }) => {
+      cy.visit(`/dashboard/${DASHBOARD_ID}`);
+    });
+    cy.findByText("This dashboard is looking empty.");
+
     cy.icon("share")
       .closest("a")
-      .should("have.class", "cursor-default");
+      .should("have.attr", "aria-disabled", "true")
+      .click();
+
+    cy.findByText("Dashboard subscriptions").should("not.exist");
+    cy.findByText("Sharing and embedding").should("not.exist");
+    cy.findByText(/Share this dashboard with people *./i).should("not.exist");
   });
 
-  it.skip("should allow sharing if dashboard contains only text cards (metabase#15077)", () => {
+  it("should allow sharing if dashboard contains only text cards (metabase#15077)", () => {
     cy.createDashboard("15077D").then(({ body: { id: DASHBOARD_ID } }) => {
       cy.visit(`/dashboard/${DASHBOARD_ID}`);
     });
@@ -39,9 +44,15 @@ describe("scenarios > dashboard > subscriptions", () => {
     cy.findByText("You're editing this dashboard.").should("not.exist");
     cy.icon("share")
       .closest("a")
-      .should("have.class", "cursor-pointer")
       .click();
-    cy.findByText("Dashboard subscriptions").click();
+
+    // Ensure clicking share icon opens sharing and embedding modal directly,
+    // without a menu with sharing and dashboard subscription options.
+    // Dashboard subscriptions are not shown because
+    // getting notifications with static text-only cards doesn't make a lot of sense
+    cy.findByText("Dashboard subscriptions").should("not.exist");
+    cy.findByText("Sharing and embedding").should("not.exist");
+    cy.findByText(/Share this dashboard with people *./i);
   });
 
   describe("with no channels set up", () => {
@@ -67,9 +78,42 @@ describe("scenarios > dashboard > subscriptions", () => {
     });
 
     describe("with no existing subscriptions", () => {
+      it("should not enable subscriptions without the recipient (metabase#17657)", () => {
+        openDashboardSubscriptions();
+
+        cy.findByText("Email it").click();
+
+        // Make sure no recipients have been assigned
+        cy.findByPlaceholderText("Enter user names or email addresses");
+
+        /**
+         * Change the schedule to "Monthly"
+         *
+         * Please note: This test was modified for the `release-x.40.x` branch specifically.
+         *              The default schedule on `master` is "hourly".
+         *              That change was introduced in https://github.com/metabase/metabase/pull/17425.
+         */
+
+        cy.findByText("Daily").click();
+        cy.findByText("Monthly").click();
+
+        sidebar().within(() => {
+          cy.button("Done").should("be.disabled");
+        });
+      });
+
       it("should allow creation of a new email subscription", () => {
         createEmailSubscription();
         cy.findByText("Emailed daily at 8:00 AM");
+      });
+
+      it("should not render people dropdown outside of the borders of the screen (metabase#17186)", () => {
+        openDashboardSubscriptions();
+
+        cy.findByText("Email it").click();
+        cy.findByPlaceholderText("Enter user names or email addresses").click();
+
+        popover().isRenderedWithinViewport();
       });
     });
 
@@ -348,7 +392,8 @@ function assignRecipient({ user = admin, dashboard_id = 1 } = {}) {
   cy.findByText("Email it").click();
   cy.findByPlaceholderText("Enter user names or email addresses")
     .click()
-    .type(`${user.first_name} ${user.last_name}{enter}`);
+    .type(`${user.first_name} ${user.last_name}{enter}`)
+    .blur(); // blur is needed to close the popover
 }
 
 function clickButton(button_name) {

@@ -27,7 +27,7 @@ describe("scenarios > question > notebook", () => {
     cy.signInAsAdmin();
   });
 
-  it.skip("shouldn't offer to save the question when there were no changes (metabase#13470)", () => {
+  it("shouldn't offer to save the question when there were no changes (metabase#13470)", () => {
     openOrdersTable();
     // save question initially
     cy.findByText("Save").click();
@@ -70,7 +70,7 @@ describe("scenarios > question > notebook", () => {
     cy.contains("Showing 1 row"); // ensure only one user was returned
   });
 
-  it.skip("should show the original custom expression filter field on subsequent click (metabase#14726)", () => {
+  it("should show the original custom expression filter field on subsequent click (metabase#14726)", () => {
     cy.server();
     cy.route("POST", "/api/dataset").as("dataset");
 
@@ -87,8 +87,13 @@ describe("scenarios > question > notebook", () => {
     });
 
     cy.wait("@dataset");
-    cy.findByText("ID 96 97").click();
-    cy.get("[contenteditable='true']").contains("between([ID], 96, 97)");
+    cy.findByText("ID between 96 97").click();
+    cy.findByText("Between").click();
+    popover().within(() => {
+      cy.contains("Is not");
+      cy.contains("Greater than");
+      cy.contains("Less than");
+    });
   });
 
   it("should show the correct number of function arguments in a custom expression", () => {
@@ -456,7 +461,7 @@ describe("scenarios > question > notebook", () => {
       });
     });
 
-    it.skip("should be able to do subsequent aggregation on a custom expression (metabase#14649)", () => {
+    it("should be able to do subsequent aggregation on a custom expression (metabase#14649)", () => {
       cy.createQuestion({
         name: "14649_min",
         query: {
@@ -466,7 +471,7 @@ describe("scenarios > question > notebook", () => {
               [
                 "aggregation-options",
                 ["sum", ["field", ORDERS.SUBTOTAL, null]],
-                { "display-name": "Revenue" },
+                { name: "Revenue", "display-name": "Revenue" },
               ],
             ],
             breakout: [
@@ -492,10 +497,10 @@ describe("scenarios > question > notebook", () => {
       });
     });
 
-    it.skip("x-rays should work on explicit joins when metric is for the joined table (metabase#14793)", () => {
+    it("x-rays should work on explicit joins when metric is for the joined table (metabase#14793)", () => {
       cy.server();
       cy.route("POST", "/api/dataset").as("dataset");
-      cy.route("GET", "/api/automagic-dashboards/adhoc/").as("xray");
+      cy.route("GET", "/api/automagic-dashboards/adhoc/**").as("xray");
 
       visitQuestionAdhoc({
         dataset_query: {
@@ -542,56 +547,6 @@ describe("scenarios > question > notebook", () => {
       cy.findByText("How this metric is distributed across different numbers");
       // Make sure at least one card is rendered
       cy.get(".DashCard");
-    });
-
-    it("binning for a date column on a joined table should offer only a single set of values (metabase#15446)", () => {
-      cy.createQuestion({
-        name: "15446",
-        query: {
-          "source-table": ORDERS_ID,
-          joins: [
-            {
-              fields: "all",
-              "source-table": PRODUCTS_ID,
-              condition: [
-                "=",
-                ["field", ORDERS.PRODUCT_ID, null],
-                [
-                  "field",
-                  PRODUCTS.ID,
-                  {
-                    "join-alias": "Products",
-                  },
-                ],
-              ],
-              alias: "Products",
-            },
-          ],
-          aggregation: [["sum", ["field", ORDERS.TOTAL, null]]],
-        },
-      }).then(({ body: { id: QUESTION_ID } }) => {
-        cy.visit(`/question/${QUESTION_ID}/notebook`);
-      });
-      cy.findByText("Pick a column to group by").click();
-      // In the first popover we'll choose the breakout method
-      popover().within(() => {
-        cy.findByText("User").click();
-        cy.findByPlaceholderText("Find...").type("cr");
-        cy.findByText("Created At")
-          .closest(".List-item")
-          .findByText("by month")
-          .click({ force: true });
-      });
-      // The second popover shows up and offers binning options
-      popover()
-        .last()
-        .within(() => {
-          cy.findByText("Hour of day").scrollIntoView();
-          // This is an implicit assertion - test fails when there is more than one string when using `findByText` instead of `findAllByText`
-          cy.findByText("Minute").click();
-        });
-      // Given that the previous step passes, we should now see this in the UI
-      cy.findByText("User → Created At: Minute");
     });
 
     it("should handle ad-hoc question with old syntax (metabase#15372)", () => {
@@ -663,18 +618,6 @@ describe("scenarios > question > notebook", () => {
       cy.button("Add filter")
         .should("not.be.disabled")
         .click();
-    });
-
-    it("should not render duplicated values in date binning popover (metabase#15574)", () => {
-      openOrdersTable({ mode: "notebook" });
-      cy.findByText("Summarize").click();
-      cy.findByText("Pick a column to group by").click();
-      popover()
-        .findByText("Created At")
-        .closest(".List-item")
-        .findByText("by month")
-        .click({ force: true });
-      cy.findByText("Minute");
     });
   });
 
@@ -833,6 +776,156 @@ describe("scenarios > question > notebook", () => {
         cy.contains(result);
       });
     });
+  });
+
+  describe("error feedback", () => {
+    it("should catch mismatched parentheses", () => {
+      openProductsTable({ mode: "notebook" });
+      cy.findByText("Custom column").click();
+      popover().within(() => {
+        cy.get("[contenteditable='true']").type("FLOOR [Price]/2)");
+        cy.findByPlaceholderText("Something nice and descriptive")
+          .click()
+          .type("Massive Discount");
+        cy.contains(/^Expecting an opening parenthesis after function FLOOR/i);
+      });
+    });
+
+    it("should catch missing parentheses", () => {
+      openProductsTable({ mode: "notebook" });
+      cy.findByText("Custom column").click();
+      popover().within(() => {
+        cy.get("[contenteditable='true']").type("LOWER [Vendor]");
+        cy.findByPlaceholderText("Something nice and descriptive")
+          .click()
+          .type("Massive Discount");
+        cy.contains(/^Expecting an opening parenthesis after function LOWER/i);
+      });
+    });
+
+    it("should catch invalid characters", () => {
+      openProductsTable({ mode: "notebook" });
+      cy.findByText("Custom column").click();
+      popover().within(() => {
+        cy.get("[contenteditable='true']").type("[Price] / #");
+        cy.findByPlaceholderText("Something nice and descriptive")
+          .click()
+          .type("Massive Discount");
+        cy.contains(/^Invalid character: #/i);
+      });
+    });
+
+    it("should catch unterminated string literals", () => {
+      openProductsTable({ mode: "notebook" });
+      cy.findByText("Filter").click();
+      cy.findByText("Custom Expression").click();
+      cy.get("[contenteditable='true']")
+        .click()
+        .clear()
+        .type('[Category] = "widget', { delay: 50 });
+      cy.button("Done")
+        .should("not.be.disabled")
+        .click();
+      cy.findByText("Missing closing quotes");
+    });
+
+    it("should catch unterminated field reference", () => {
+      openProductsTable({ mode: "notebook" });
+      cy.findByText("Custom column").click();
+      popover().within(() => {
+        cy.get("[contenteditable='true']").type("[Price / 2");
+        cy.findByPlaceholderText("Something nice and descriptive")
+          .click()
+          .type("Massive Discount");
+        cy.contains(/^Missing a closing bracket/i);
+      });
+    });
+
+    it("should catch non-existent field reference", () => {
+      openProductsTable({ mode: "notebook" });
+      cy.findByText("Custom column").click();
+      popover().within(() => {
+        cy.get("[contenteditable='true']").type("abcdef");
+        cy.findByPlaceholderText("Something nice and descriptive")
+          .click()
+          .type("Non-existent");
+        cy.contains(/^Unknown Field: abcdef/i);
+      });
+    });
+  });
+
+  describe("typing suggestion", () => {
+    it("should not suggest arithmetic operators", () => {
+      openProductsTable({ mode: "notebook" });
+      cy.findByText("Custom column").click();
+      cy.get("[contenteditable='true']").type("[Price] ");
+      cy.contains("/").should("not.exist");
+    });
+
+    it("should correctly accept the chosen field suggestion", () => {
+      openProductsTable({ mode: "notebook" });
+      cy.findByText("Custom column").click();
+      cy.get("[contenteditable='true']").type(
+        "[Rating]{leftarrow}{leftarrow}{leftarrow}",
+      );
+
+      // accept the only suggested item, i.e. "[Rating]"
+      cy.get("[contenteditable='true']").type("{enter}");
+
+      // if the replacement is correct -> "[Rating]"
+      // if the replacement is wrong -> "[Rating] ng"
+      cy.get("[contenteditable='true']")
+        .contains("[Rating] ng")
+        .should("not.exist");
+    });
+
+    it("should correctly accept the chosen function suggestion", () => {
+      openProductsTable({ mode: "notebook" });
+      cy.findByText("Custom column").click();
+      cy.get("[contenteditable='true']").type("LTRIM([Title])");
+
+      // Place the cursor between "is" and "empty"
+      cy.get("[contenteditable='true']").type(
+        Array(13)
+          .fill("{leftarrow}")
+          .join(""),
+      );
+
+      // accept the first suggested function, i.e. "length"
+      cy.get("[contenteditable='true']").type("{enter}");
+
+      cy.get("[contenteditable='true']").contains("length([Title])");
+    });
+  });
+
+  describe("help text", () => {
+    it("should appear while inside a function", () => {
+      openProductsTable({ mode: "notebook" });
+      cy.findByText("Custom column").click();
+      cy.get("[contenteditable='true']").type("Lower(");
+      cy.findByText("lower(text)");
+    });
+
+    it("should not appear while outside a function", () => {
+      openProductsTable({ mode: "notebook" });
+      cy.findByText("Custom column").click();
+      cy.get("[contenteditable='true']").type("Lower([Category])");
+      cy.findByText("lower(text)").should("not.exist");
+    });
+
+    it("should appear after a field reference", () => {
+      openProductsTable({ mode: "notebook" });
+      cy.findByText("Custom column").click();
+      cy.get("[contenteditable='true']").type("Lower([Category]");
+      cy.findByText("lower(text)");
+    });
+  });
+
+  it("should correctly insert function suggestion with the opening parenthesis", () => {
+    openProductsTable({ mode: "notebook" });
+    cy.findByText("Custom column").click();
+    cy.get("[contenteditable='true']").type("LOW{enter}");
+    cy.get("[contenteditable='true']").contains("lower(");
   });
 });
 
